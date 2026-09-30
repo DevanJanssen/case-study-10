@@ -61,7 +61,8 @@ function showDashboard() {
 
 // --- Data -------------------------------------------------------------------
 
-const MODE_LABELS = { thumbs: "👍👎 Agree / disagree", stars: "⭐ 1–5 stars" };
+const MODE_LABELS = { thumbs: "👍👎 Agree / disagree", stars: "⭐ 1–5 stars", fingers: "✋ 1–5 fingers" };
+const isRating = (mode) => mode === "stars" || mode === "fingers";
 
 let current = null; // current statement, used by the switch button
 
@@ -81,21 +82,22 @@ async function refresh() {
 }
 
 function renderCurrent(statement, r) {
-  const stars = statement.mode === "stars";
+  const rating = isRating(statement.mode);
+  const unit = statement.mode === "fingers" ? "✋" : "★";
   $("currentText").textContent = `“${statement.text}”`;
   $("currentMode").textContent = MODE_LABELS[statement.mode];
-  $("switchBtn").textContent = stars ? "Switch to 👍👎 agree / disagree" : "Switch to ⭐ stars";
-  $("thumbsResults").hidden = stars;
-  $("starsResults").hidden = !stars;
+  document.querySelectorAll(".switch-btn").forEach((btn) => (btn.hidden = btn.dataset.mode === statement.mode));
+  $("thumbsResults").hidden = rating;
+  $("starsResults").hidden = !rating;
 
-  if (stars) {
-    $("avgVal").textContent = r.total ? `${r.average.toFixed(1)} ★` : "–";
+  if (rating) {
+    $("avgVal").textContent = r.total ? `${r.average.toFixed(1)} / 5` : "–";
     $("ratingsVal").textContent = r.total;
     $("dist").replaceChildren(
       ...[5, 4, 3, 2, 1].map((n) => {
         const row = document.createElement("div");
         row.className = "dist-row";
-        row.innerHTML = `<span>${n} ★</span><div class="bar"><div class="bar-fill star"></div></div><span></span>`;
+        row.innerHTML = `<span>${n} ${unit}</span><div class="bar"><div class="bar-fill star"></div></div><span></span>`;
         row.querySelector(".bar-fill").style.width = `${r.pct[n]}%`;
         row.lastElementChild.textContent = `${r.counts[n]} · ${r.pct[n]}%`;
         return row;
@@ -117,7 +119,7 @@ function renderCurrent(statement, r) {
 
 function summary({ results: r }) {
   if (!r.total) return "–";
-  return r.mode === "stars" ? `${r.average.toFixed(1)} ★ avg` : `${r.agreePct}% agree`;
+  return isRating(r.mode) ? `${r.average.toFixed(1)} / 5 avg` : `${r.agreePct}% agree`;
 }
 
 function renderHistory(rows) {
@@ -138,8 +140,12 @@ function renderHistory(rows) {
 }
 
 async function publish(text, mode) {
-  await api("/api/statement", { method: "POST", body: JSON.stringify({ text, mode }) });
+  const created = await (await api("/api/statement", { method: "POST", body: JSON.stringify({ text, mode }) })).json();
   refresh();
+  // An older server ignores `mode` and silently creates a thumbs statement.
+  if (created.mode !== mode) {
+    throw new Error("The server did not apply the variant. It is probably running an old version: restart it.");
+  }
 }
 
 // --- Actions ----------------------------------------------------------------
@@ -157,14 +163,16 @@ $("statementForm").addEventListener("submit", async (e) => {
   }
 });
 
-$("switchBtn").addEventListener("click", async () => {
-  if (!current) return;
-  try {
-    await publish(current.text, current.mode === "stars" ? "thumbs" : "stars");
-  } catch (err) {
-    if (err.message !== "unauthorized") alert(`Switch failed: ${err.message}`);
-  }
-});
+document.querySelectorAll(".switch-btn").forEach((btn) =>
+  btn.addEventListener("click", async () => {
+    if (!current) return;
+    try {
+      await publish(current.text, btn.dataset.mode);
+    } catch (err) {
+      if (err.message !== "unauthorized") alert(`Switch failed: ${err.message}`);
+    }
+  })
+);
 
 $("exportBtn").addEventListener("click", async () => {
   try {

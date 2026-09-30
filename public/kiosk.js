@@ -14,6 +14,9 @@ const HAND_GONE_MS = 1000;     // hand must be out of view this long before the 
 const POLL_MS = 3000;          // how often to check for a new statement
 const STAR_HIT_PADDING = 40;   // px around each star that still counts as pointing at it
 const SMOOTHING = 0.5;         // 0 = raw fingertip, closer to 1 = steadier but laggier cursor
+const FINGER_RATIO = 1.15;     // finger is "up" when tip-to-wrist > this × joint-to-wrist
+const THUMB_RATIO = 1.2;       // thumb is "out" when tip-to-index-base > this × thumb-base-to-index-base
+const STABLE_FRAMES = 5;       // finger count must be the same this many frames in a row before it counts
 
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm";
 const MODEL_URL =
@@ -26,8 +29,18 @@ const GESTURES = {
 
 // Hand landmark indices (https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker)
 const WRIST = 0;
+const THUMB_MCP = 2;
+const THUMB_IP = 3;
+const THUMB_TIP = 4;
+const INDEX_MCP = 5;
 const INDEX_PIP = 6;
 const INDEX_TIP = 8;
+const PINKY_MCP = 17;
+const FINGERS = [ // [pip, tip] for index, middle, ring, pinky
+  [6, 8], [10, 12], [14, 16], [18, 20],
+];
+
+const HOLD_TEXT = `${HOLD_MS / 1000} ${HOLD_MS === 1000 ? "second" : "seconds"}`;
 
 const STAR_PATH =
   "M12 2.6l2.83 5.9 6.47.78-4.77 4.46 1.23 6.43L12 17.02l-5.76 3.15 1.23-6.43L2.7 9.28l6.47-.78z";
@@ -57,6 +70,9 @@ const els = {
   cursor: $("cursor"),
   cursorFill: $("cursorFill"),
   cursorCount: $("cursorCount"),
+  fingers: $("fingers"),
+  fingerRow: $("fingerRow"),
+  fingerLabel: $("fingerLabel"),
   result: $("result"),
   resultTitle: $("resultTitle"),
   resultAverage: $("resultAverage"),
@@ -78,28 +94,37 @@ const starEls = [1, 2, 3, 4, 5].map((n) => {
   return el;
 });
 
+const fingerEls = [1, 2, 3, 4, 5].map((n) => {
+  const el = document.createElement("div");
+  el.className = "finger-chip";
+  el.textContent = n;
+  els.fingerRow.append(el);
+  return el;
+});
+
 // --- State ------------------------------------------------------------------
 
 let recognizer;
 let statement = null;           // { id, text, mode }
 let state = "idle";             // idle | holding | saving | result | cooldown
-let holdKey = null;             // what is being held: a gesture name or a star number
+let holdKey = null;             // what is being held: a gesture name, star number or finger count
 let holdStart = 0;
 let lastKeySeen = 0;
 let lastHandSeen = 0;
 let lastVideoTime = -1;
 let cursorPos = null;           // smoothed fingertip position in camera-box pixels
+let fingerCount = { stable: null, candidate: null, frames: 0 };
 
 // --- Variants ---------------------------------------------------------------
 //
-// Both variants share the same hold → save → result → cooldown flow. A variant
+// All variants share the same hold → save → result → cooldown flow. A variant
 // only decides what the student is "holding" in a frame (read), how to show
 // the hold (render/clear), and what to send to the server (payload).
 
 const variants = {
   thumbs: {
     eyebrow: "Do you agree?",
-    idleText: "Show 👍 to agree or 👎 to disagree, and hold it for 3 seconds",
+    idleText: `Show 👍 to agree or 👎 to disagree, and hold it for ${HOLD_TEXT}`,
 
     read(result) {
       const top = result.gestures[0]?.[0];
@@ -125,7 +150,7 @@ const variants = {
 
   stars: {
     eyebrow: "How would you rate this?",
-    idleText: "Point your index finger at a star and hold it for 3 seconds",
+    idleText: `Point your index finger at a star and hold it for ${HOLD_TEXT}`,
 
     read(result) {
       const hand = result.landmarks[0];
@@ -164,18 +189,89 @@ const variants = {
 
     payload: (key) => ({ rating: key }),
   },
+
+  fingers: {
+    eyebrow: "How would you rate this?",
+    idleText: `Hold up 1 to 5 fingers for ${HOLD_TEXT} to give a rating`,
+
+    read(result) {
+      const hand = result.worldLandmarks[0];
+      return stableCount(hand ? countFingers(hand) : 0);
+    },
+
+    render(key, progress) {
+      paintFingers(key);
+      els.ringWrap.hidden = false;
+      els.ringWrap.dataset.answer = "fingers";
+      els.ringEmoji.textContent = "✋";
+      els.ringCount.textContent = key;
+      els.ringFill.style.strokeDashoffset = RING_LENGTH * (1 - progress);
+      els.fingerLabel.textContent = `${key} ${key === 1 ? "finger" : "fingers"} = ${key} of 5`;
+      setStatus(`Keep holding up ${key} ${key === 1 ? "finger" : "fingers"}…`);
+    },
+
+    clear() {
+      paintFingers(0);
+      els.ringWrap.hidden = true;
+      els.fingerLabel.textContent = "Hold up 1 to 5 fingers";
+    },
+
+    payload: (key) => ({ rating: key }),
+  },
 };
 
 const variant = () => variants[statement?.mode] ?? variants.thumbs;
 
 function applyMode() {
-  const mode = statement?.mode === "stars" ? "stars" : "thumbs";
+  const mode = variants[statement?.mode] ? statement.mode : "thumbs";
   document.body.dataset.mode = mode;
   els.stars.hidden = mode !== "stars";
+  els.fingers.hidden = mode !== "fingers";
   els.cursor.hidden = true;
   els.eyebrow.textContent = variant().eyebrow;
-  variants.thumbs.clear();
-  variants.stars.clear();
+  Object.values(variants).forEach((v) => v.clear());
+}
+
+// --- Fingers helpers --------------------------------------------------------
+
+const dist3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
+/**
+ * Count raised fingers from 3D world landmarks (metres, so the result does not
+ * depend on how far the hand is from the camera or the image aspect ratio).
+ */
+function countFingers(hand) {
+  const wrist = hand[WRIST];
+  let count = FINGERS.filter(([pip, tip]) => dist3(hand[tip], wrist) > dist3(hand[pip], wrist) * FINGER_RATIO).length;
+
+  // The thumb bends sideways, so compare it against the base of the index finger
+  // (a tucked thumb ends up near it) and the pinky base (an extended thumb points away from it).
+  const thumbOut =
+    dist3(hand[THUMB_TIP], hand[INDEX_MCP]) > dist3(hand[THUMB_MCP], hand[INDEX_MCP]) * THUMB_RATIO &&
+    dist3(hand[THUMB_TIP], hand[PINKY_MCP]) > dist3(hand[THUMB_IP], hand[PINKY_MCP]);
+  if (thumbOut) count++;
+
+  return count;
+}
+
+/** Only change the reported count after it has been seen STABLE_FRAMES frames in a row. */
+function stableCount(raw) {
+  const value = raw >= 1 ? raw : null; // a fist (0) is not an answer
+  if (value === fingerCount.candidate) {
+    fingerCount.frames++;
+  } else {
+    fingerCount.candidate = value;
+    fingerCount.frames = 1;
+  }
+  if (fingerCount.frames >= STABLE_FRAMES) fingerCount.stable = value;
+  return fingerCount.stable;
+}
+
+function paintFingers(value) {
+  fingerEls.forEach((el, i) => {
+    el.classList.toggle("filled", i < value);
+    el.classList.toggle("target", i === value - 1);
+  });
 }
 
 // --- Stars helpers ----------------------------------------------------------
@@ -444,12 +540,16 @@ async function submitVote(payload) {
 
 function showResult(payload, r) {
   let rows;
-  if (r.mode === "stars") {
+  if (r.mode === "stars" || r.mode === "fingers") {
+    const fingers = r.mode === "fingers";
+    const unit = fingers ? "✋" : "★";
     els.result.dataset.answer = "stars";
-    els.resultTitle.textContent = `${"★".repeat(payload.rating)}${"☆".repeat(5 - payload.rating)} recorded ✓`;
+    els.resultTitle.textContent = fingers
+      ? `✋ ${payload.rating} of 5 recorded ✓`
+      : `${"★".repeat(payload.rating)}${"☆".repeat(5 - payload.rating)} recorded ✓`;
     els.resultAverage.hidden = false;
-    els.resultAverage.textContent = `Average ${r.average.toFixed(1)} ★`;
-    rows = [5, 4, 3, 2, 1].map((n) => ({ label: `${n} ★`, pct: r.pct[n], cls: "star" }));
+    els.resultAverage.textContent = `Average ${r.average.toFixed(1)} / 5`;
+    rows = [5, 4, 3, 2, 1].map((n) => ({ label: `${n} ${unit}`, pct: r.pct[n], cls: "star" }));
   } else {
     els.result.dataset.answer = payload.answer;
     els.resultTitle.textContent = payload.answer === "agree" ? "👍 Agree recorded ✓" : "👎 Disagree recorded ✓";

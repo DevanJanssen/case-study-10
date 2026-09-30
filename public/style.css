@@ -272,6 +272,28 @@ body.kiosk {
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
 }
 
+/* Fingers variant */
+
+.finger-row { display: flex; gap: clamp(8px, 2vw, 20px); }
+.finger-chip {
+  width: clamp(44px, 8vw, 84px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  background: rgba(15, 16, 32, 0.35);
+  font-size: clamp(1.2rem, 3vw, 2rem);
+  font-weight: 700;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.2s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.finger-chip.filled { background: var(--star); border-color: var(--star); color: #1a1c33; }
+.finger-chip.target { transform: scale(1.15); box-shadow: 0 0 16px rgba(251, 191, 36, 0.6); }
+.ring-wrap[data-answer="fingers"] { --color: var(--star); }
+/* Keep the ring clear of the number chips at the top */
+body[data-mode="fingers"] .ring-wrap { top: 38%; }
+body[data-mode="fingers"] .ring { width: auto; height: min(90%, 260px); }
+
 /* Fingertip cursor; its ring fills while a star is held */
 .cursor {
   position: absolute;

@@ -46,9 +46,12 @@
 
       <p class="msg" id="pctText"></p>
       <div class="row" style="margin-top:16px">
-        <button id="switchBtn" class="secondary">Switch to ⭐ stars</button>
+        <span class="msg" style="margin:0">Switch variant:</span>
+        <button class="secondary switch-btn" data-mode="thumbs">👍👎 Agree / disagree</button>
+        <button class="secondary switch-btn" data-mode="stars">⭐ Stars</button>
+        <button class="secondary switch-btn" data-mode="fingers">✋ Fingers</button>
       </div>
-      <p class="msg">Switching republishes the same statement with the other variant. Results are kept separately.</p>
+      <p class="msg">Switching republishes the same statement with the chosen variant. Results are kept separately.</p>
     </section>
 
     <section class="card">
@@ -57,6 +60,7 @@
         <div class="mode-toggle" role="radiogroup" aria-label="Variant">
           <input type="radio" name="mode" id="modeThumbs" value="thumbs" checked><label for="modeThumbs">👍👎 Agree / disagree</label>
           <input type="radio" name="mode" id="modeStars" value="stars"><label for="modeStars">⭐ 1–5 stars</label>
+          <input type="radio" name="mode" id="modeFingers" value="fingers"><label for="modeFingers">✋ 1–5 fingers</label>
         </div>
         <textarea id="newStatement" maxlength="300" placeholder="e.g. The pace of this lesson was right for me." required></textarea>
         <div class="row">

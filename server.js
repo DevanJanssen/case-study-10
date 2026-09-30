@@ -42,7 +42,9 @@ db.exec(`
 `);
 
 // Migration: databases created before the stars variant have no `mode` column.
-const MODES = ["thumbs", "stars"];
+const MODES = ["thumbs", "stars", "fingers"];
+// Variants whose answer is a 1–5 rating (stored in `ratings`) rather than agree/disagree.
+const RATING_MODES = ["stars", "fingers"];
 if (!db.prepare("PRAGMA table_info(statements)").all().some((c) => c.name === "mode")) {
   db.exec("ALTER TABLE statements ADD COLUMN mode TEXT NOT NULL DEFAULT 'thumbs'");
 }
@@ -81,7 +83,7 @@ const percent = (n, total) => (total ? Math.round((n / total) * 100) : 0);
 function results(statement) {
   const { id: statementId, mode } = statement;
 
-  if (mode === "stars") {
+  if (RATING_MODES.includes(mode)) {
     const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     for (const { rating, n } of q.ratingCounts.all(statementId)) counts[rating] = n;
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -124,13 +126,13 @@ app.post("/api/statement", requireAdmin, (req, res) => {
     return res.status(400).json({ error: "Statement must be 1–300 characters" });
   }
   if (!MODES.includes(mode)) {
-    return res.status(400).json({ error: 'mode must be "thumbs" or "stars"' });
+    return res.status(400).json({ error: `mode must be one of: ${MODES.join(", ")}` });
   }
   const { lastInsertRowid } = q.insertStatement.run(text, mode);
   res.status(201).json(q.byId.get(lastInsertRowid));
 });
 
-// One endpoint for both variants: thumbs statements take {answer}, star statements take {rating}.
+// One endpoint for all variants: thumbs statements take {answer}, star/finger statements take {rating}.
 app.post("/api/votes", (req, res) => {
   const statementId = Number(req.body?.statementId);
   const statement = Number.isInteger(statementId) && q.byId.get(statementId);
@@ -138,7 +140,7 @@ app.post("/api/votes", (req, res) => {
     return res.status(400).json({ error: "Unknown statementId" });
   }
 
-  if (statement.mode === "stars") {
+  if (RATING_MODES.includes(statement.mode)) {
     const rating = req.body?.rating;
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
       return res.status(400).json({ error: "rating must be a whole number from 1 to 5" });
