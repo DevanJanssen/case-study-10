@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Feedback Admin</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="admin">
+  <h1>Feedback admin</h1>
+  <p class="sub">Manage the statement shown on the <a href="/" target="_blank">kiosk</a> and view results.</p>
+
+  <section class="card" id="loginCard">
+    <h2>Sign in</h2>
+    <form id="loginForm" class="row">
+      <input type="password" id="password" placeholder="Admin password" autocomplete="current-password" required style="flex:1;min-width:200px">
+      <button type="submit">Sign in</button>
+    </form>
+    <p class="msg" id="loginMsg"></p>
+  </section>
+
+  <div id="dashboard" hidden>
+    <section class="card">
+      <h2>Current statement · live results</h2>
+      <p class="current-statement" id="currentText">…</p>
+      <div class="stats">
+        <div class="stat agree"><div class="label">👍 Agree</div><div class="value" id="agreeVal">0</div></div>
+        <div class="stat disagree"><div class="label">👎 Disagree</div><div class="value" id="disagreeVal">0</div></div>
+        <div class="stat"><div class="label">Total</div><div class="value" id="totalVal">0</div></div>
+      </div>
+      <div class="split-bar" aria-hidden="true">
+        <div class="agree" id="agreeSplit" style="width:0"></div>
+        <div class="disagree" id="disagreeSplit" style="width:0"></div>
+      </div>
+      <p class="msg" id="pctText"></p>
+    </section>
+
+    <section class="card">
+      <h2>Set a new statement</h2>
+      <form id="statementForm">
+        <textarea id="newStatement" maxlength="300" placeholder="e.g. The pace of this lesson was right for me." required></textarea>
+        <div class="row">
+          <button type="submit">Publish to kiosk</button>
+          <span class="msg" id="statementMsg" style="margin:0"></span>
+        </div>
+      </form>
+      <p class="msg">Each statement keeps its own results. The kiosk picks up the new statement within 5 seconds.</p>
+    </section>
+
+    <section class="card">
+      <h2>History</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Statement</th><th>Created (UTC)</th><th class="num">👍</th><th class="num">👎</th><th class="num">Agree %</th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:16px">
+        <button id="exportBtn">Export all votes (CSV)</button>
+        <button id="logoutBtn" class="secondary">Sign out</button>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="admin.js"></script>
+</body>
+</html>

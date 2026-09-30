@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thumbs Feedback</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="kiosk">
+  <header class="statement-bar">
+    <p class="eyebrow">Do you agree?</p>
+    <h1 id="statement">Loading statement…</h1>
+  </header>
+
+  <main class="stage">
+    <div class="camera" id="camera">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="overlay"></canvas>
+
+      <!-- Hold-progress ring, shown while a thumb gesture is held -->
+      <div class="ring-wrap" id="ringWrap" hidden>
+        <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="ring-track" cx="60" cy="60" r="52"></circle>
+          <circle class="ring-fill" id="ringFill" cx="60" cy="60" r="52"></circle>
+        </svg>
+        <div class="ring-label">
+          <span class="ring-emoji" id="ringEmoji">👍</span>
+          <span class="ring-count" id="ringCount">3</span>
+        </div>
+      </div>
+
+      <!-- Result card, shown after a vote -->
+      <div class="result" id="result" hidden>
+        <p class="result-title" id="resultTitle">Agree recorded ✓</p>
+        <div class="bars">
+          <div class="bar-row">
+            <span class="bar-label">👍 Agree</span>
+            <div class="bar"><div class="bar-fill agree" id="agreeBar"></div></div>
+            <span class="bar-pct" id="agreePct">0%</span>
+          </div>
+          <div class="bar-row">
+            <span class="bar-label">👎 Disagree</span>
+            <div class="bar"><div class="bar-fill disagree" id="disagreeBar"></div></div>
+            <span class="bar-pct" id="disagreePct">0%</span>
+          </div>
+        </div>
+        <p class="result-total" id="resultTotal"></p>
+      </div>
+
+      <!-- Loading / error / start overlay -->
+      <div class="notice" id="notice">
+        <p id="noticeText">Loading hand tracking…</p>
+        <button id="startBtn" hidden>Start camera</button>
+      </div>
+    </div>
+
+    <p class="status" id="status" aria-live="polite">Show 👍 to agree or 👎 to disagree, and hold it for 3 seconds</p>
+  </main>
+
+  <footer class="privacy">The camera image is processed on this device only and is never stored or sent.</footer>
+
+  <script type="module" src="kiosk.js"></script>
+</body>
+</html>

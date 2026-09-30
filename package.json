@@ -1,0 +1,16 @@
+{
+  "name": "thumbs-feedback",
+  "version": "1.0.0",
+  "description": "Student feedback kiosk: answer a statement with a thumbs up or thumbs down, detected with MediaPipe hand tracking.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
