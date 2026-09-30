@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Thumbs Feedback</title>
+  <title>Gesture Feedback</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body class="kiosk">
+<body class="kiosk" data-mode="thumbs">
   <header class="statement-bar">
-    <p class="eyebrow">Do you agree?</p>
+    <p class="eyebrow" id="eyebrow">Do you agree?</p>
     <h1 id="statement">Loading statement…</h1>
   </header>
 
@@ -16,6 +16,19 @@
     <div class="camera" id="camera">
       <video id="video" playsinline muted autoplay></video>
       <canvas id="overlay"></canvas>
+
+      <!-- Stars variant: point the index finger at a star to select a rating -->
+      <div class="stars" id="stars" aria-label="Rating" hidden>
+        <div class="star-row" id="starRow"></div>
+        <p class="star-label" id="starLabel">Point at a star</p>
+      </div>
+      <div class="cursor" id="cursor" hidden>
+        <svg viewBox="0 0 60 60" aria-hidden="true">
+          <circle class="cursor-track" cx="30" cy="30" r="24"></circle>
+          <circle class="cursor-fill" id="cursorFill" cx="30" cy="30" r="24"></circle>
+        </svg>
+        <span class="cursor-count" id="cursorCount"></span>
+      </div>
 
       <!-- Hold-progress ring, shown while a thumb gesture is held -->
       <div class="ring-wrap" id="ringWrap" hidden>
@@ -32,18 +45,8 @@
       <!-- Result card, shown after a vote -->
       <div class="result" id="result" hidden>
         <p class="result-title" id="resultTitle">Agree recorded ✓</p>
-        <div class="bars">
-          <div class="bar-row">
-            <span class="bar-label">👍 Agree</span>
-            <div class="bar"><div class="bar-fill agree" id="agreeBar"></div></div>
-            <span class="bar-pct" id="agreePct">0%</span>
-          </div>
-          <div class="bar-row">
-            <span class="bar-label">👎 Disagree</span>
-            <div class="bar"><div class="bar-fill disagree" id="disagreeBar"></div></div>
-            <span class="bar-pct" id="disagreePct">0%</span>
-          </div>
-        </div>
+        <p class="result-average" id="resultAverage" hidden></p>
+        <div class="bars" id="resultBars"></div>
         <p class="result-total" id="resultTotal"></p>
       </div>
 

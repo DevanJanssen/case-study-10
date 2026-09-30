@@ -61,6 +61,10 @@ function showDashboard() {
 
 // --- Data -------------------------------------------------------------------
 
+const MODE_LABELS = { thumbs: "👍👎 Agree / disagree", stars: "⭐ 1–5 stars" };
+
+let current = null; // current statement, used by the switch button
+
 async function refresh() {
   try {
     const [statement, results, history] = await Promise.all([
@@ -68,6 +72,7 @@ async function refresh() {
       api("/api/results").then((r) => r.json()),
       api("/api/history").then((r) => r.json()),
     ]);
+    current = statement;
     renderCurrent(statement, results);
     renderHistory(history);
   } catch (err) {
@@ -76,7 +81,30 @@ async function refresh() {
 }
 
 function renderCurrent(statement, r) {
+  const stars = statement.mode === "stars";
   $("currentText").textContent = `“${statement.text}”`;
+  $("currentMode").textContent = MODE_LABELS[statement.mode];
+  $("switchBtn").textContent = stars ? "Switch to 👍👎 agree / disagree" : "Switch to ⭐ stars";
+  $("thumbsResults").hidden = stars;
+  $("starsResults").hidden = !stars;
+
+  if (stars) {
+    $("avgVal").textContent = r.total ? `${r.average.toFixed(1)} ★` : "–";
+    $("ratingsVal").textContent = r.total;
+    $("dist").replaceChildren(
+      ...[5, 4, 3, 2, 1].map((n) => {
+        const row = document.createElement("div");
+        row.className = "dist-row";
+        row.innerHTML = `<span>${n} ★</span><div class="bar"><div class="bar-fill star"></div></div><span></span>`;
+        row.querySelector(".bar-fill").style.width = `${r.pct[n]}%`;
+        row.lastElementChild.textContent = `${r.counts[n]} · ${r.pct[n]}%`;
+        return row;
+      })
+    );
+    $("pctText").textContent = r.total ? "" : "No ratings yet.";
+    return;
+  }
+
   $("agreeVal").textContent = r.agree;
   $("disagreeVal").textContent = r.disagree;
   $("totalVal").textContent = r.total;
@@ -87,28 +115,31 @@ function renderCurrent(statement, r) {
     : "No responses yet.";
 }
 
+function summary({ results: r }) {
+  if (!r.total) return "–";
+  return r.mode === "stars" ? `${r.average.toFixed(1)} ★ avg` : `${r.agreePct}% agree`;
+}
+
 function renderHistory(rows) {
   const body = $("historyBody");
   body.replaceChildren(
     ...rows.map((s) => {
-      const total = s.agree + s.disagree;
       const tr = document.createElement("tr");
-      const cells = [
-        s.text,
-        s.created_at,
-        s.agree,
-        s.disagree,
-        total ? `${Math.round((s.agree / total) * 100)}%` : "–",
-      ];
+      const cells = [s.text, MODE_LABELS[s.mode], s.created_at, s.results.total, summary(s)];
       cells.forEach((value, i) => {
         const td = document.createElement("td");
         td.textContent = value;
-        if (i >= 2) td.className = "num";
+        if (i >= 3) td.className = "num";
         tr.append(td);
       });
       return tr;
     })
   );
+}
+
+async function publish(text, mode) {
+  await api("/api/statement", { method: "POST", body: JSON.stringify({ text, mode }) });
+  refresh();
 }
 
 // --- Actions ----------------------------------------------------------------
@@ -118,12 +149,20 @@ $("statementForm").addEventListener("submit", async (e) => {
   const text = $("newStatement").value.trim();
   if (!text) return;
   try {
-    await api("/api/statement", { method: "POST", body: JSON.stringify({ text }) });
+    await publish(text, document.querySelector('input[name="mode"]:checked').value);
     $("newStatement").value = "";
     setMsg($("statementMsg"), "Published ✓", "ok");
-    refresh();
   } catch (err) {
     if (err.message !== "unauthorized") setMsg($("statementMsg"), err.message, "error");
+  }
+});
+
+$("switchBtn").addEventListener("click", async () => {
+  if (!current) return;
+  try {
+    await publish(current.text, current.mode === "stars" ? "thumbs" : "stars");
+  } catch (err) {
+    if (err.message !== "unauthorized") alert(`Switch failed: ${err.message}`);
   }
 });
 
@@ -131,7 +170,7 @@ $("exportBtn").addEventListener("click", async () => {
   try {
     const blob = await (await api("/api/export.csv")).blob();
     const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement("a"), { href: url, download: "feedback-votes.csv" });
+    const a = Object.assign(document.createElement("a"), { href: url, download: "feedback-export.csv" });
     a.click();
     URL.revokeObjectURL(url);
   } catch (err) {

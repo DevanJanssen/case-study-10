@@ -1,6 +1,11 @@
-# Thumbs Feedback
+# Gesture Feedback
 
-A kiosk website for collecting student feedback. The screen shows a statement, and a student answers by holding a **👍 thumbs up (agree)** or **👎 thumbs down (disagree)** in front of the camera for **3 seconds**. Hand tracking runs in the browser with [MediaPipe Gesture Recognizer](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer). Video never leaves the device. Only the answer is sent to the server.
+A kiosk website for collecting student feedback with hand gestures. There are two variants, and you pick one per statement on the admin page:
+
+- **👍👎 Agree / disagree.** The student holds a thumbs up (agree) or thumbs down (disagree) in front of the camera for **3 seconds**.
+- **⭐ 1–5 stars.** Five outline stars are shown along the top of the camera view. The student points their index finger at a star, which fills that star and all the stars before it, and holds it for **3 seconds** to submit the rating.
+
+Hand tracking runs in the browser with [MediaPipe Gesture Recognizer](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer). Video never leaves the device. Only the answer is sent to the server.
 
 ## Running it
 
@@ -16,34 +21,37 @@ ADMIN_PASSWORD=choose-a-password npm start
 
 If `ADMIN_PASSWORD` isn't set, the password is `admin`. Set a real one before using it with students.
 
-Votes are stored in `data/feedback.db`. Delete that file to start over.
+Responses are stored in `data/feedback.db`. Set `DB_PATH` to use a different file, or delete the file to start over. Thumbs votes go in the `votes` table and star ratings in the `ratings` table. Older databases are migrated automatically when the server starts.
 
 ## How the kiosk works
 
 1. **Idle.** The statement and the live camera feed are shown.
-2. **Holding.** When a 👍 or 👎 is detected with at least 70% confidence, a ring fills over 3 seconds. If the student switches thumbs, the ring starts over. If they drop the gesture, it resets. A 250 ms grace period absorbs single missed frames.
-3. **Recorded.** The vote is saved and the current agree/disagree percentages are shown for 4 seconds.
-4. **Cooldown.** The kiosk waits until no hand has been visible for 1 second before it accepts the next vote. This prevents the same student from voting twice.
+2. **Holding.** The kiosk fills a 3-second hold timer. A 250 ms grace period absorbs single missed frames.
+   - *Thumbs.* When a 👍 or 👎 is detected with enough confidence (`MIN_SCORE`), a large ring fills. If the student switches thumbs, it starts over. If they drop the gesture, it resets.
+   - *Stars.* A cursor follows the index fingertip, but only while the index finger is extended. When the cursor is on a star, that star and the stars before it fill, and the ring around the cursor fills. Moving to another star restarts the timer.
+3. **Recorded.** The answer is saved, and the current results are shown for 4 seconds: agree/disagree percentages, or the average rating plus a 1–5 distribution.
+4. **Cooldown.** The kiosk waits until no hand has been visible for 1 second before it accepts the next answer. This prevents the same student from answering twice.
 
-The kiosk checks for a new statement every 5 seconds. The timings are defined at the top of `public/kiosk.js`.
+The kiosk checks for a new statement, and therefore a new variant, every few seconds. The timings, the star hit area and the cursor smoothing are defined at the top of `public/kiosk.js`.
 
 ## Admin page
 
-- Publish a new statement. Each statement keeps its own results.
+- Publish a new statement and choose its variant: 👍👎 or ⭐. Each statement keeps its own results.
+- **Switch variant.** This republishes the current statement with the other variant.
 - See live counts and percentages for the current statement.
 - See the history of every statement and its results.
-- Export all votes as CSV.
+- Export all responses (votes and ratings) as CSV.
 
 ## API
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/api/statement` | – | Current statement `{id, text, created_at}` |
-| POST | `/api/statement` | admin | `{text}` publishes a new statement |
-| POST | `/api/votes` | – | `{statementId, answer: "agree" \| "disagree"}` returns the updated results |
+| GET | `/api/statement` | – | Current statement `{id, text, mode, created_at}`, where `mode` is `thumbs` or `stars` |
+| POST | `/api/statement` | admin | `{text, mode}` publishes a new statement |
+| POST | `/api/votes` | – | `{statementId, answer: "agree" \| "disagree"}` for thumbs, or `{statementId, rating: 1–5}` for stars. Returns the updated results |
 | GET | `/api/results?statementId=` | – | Counts and percentages (defaults to the current statement) |
 | GET | `/api/history` | admin | All statements with their counts |
-| GET | `/api/export.csv` | admin | All votes as CSV |
+| GET | `/api/export.csv` | admin | All votes and ratings as CSV |
 
 Admin requests send the password in the `x-admin-password` header.
 

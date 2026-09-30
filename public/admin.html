@@ -22,41 +22,61 @@
   <div id="dashboard" hidden>
     <section class="card">
       <h2>Current statement · live results</h2>
-      <p class="current-statement" id="currentText">…</p>
-      <div class="stats">
-        <div class="stat agree"><div class="label">👍 Agree</div><div class="value" id="agreeVal">0</div></div>
-        <div class="stat disagree"><div class="label">👎 Disagree</div><div class="value" id="disagreeVal">0</div></div>
-        <div class="stat"><div class="label">Total</div><div class="value" id="totalVal">0</div></div>
+      <p class="current-statement"><span id="currentText">…</span> <span class="badge" id="currentMode"></span></p>
+
+      <div id="thumbsResults">
+        <div class="stats">
+          <div class="stat agree"><div class="label">👍 Agree</div><div class="value" id="agreeVal">0</div></div>
+          <div class="stat disagree"><div class="label">👎 Disagree</div><div class="value" id="disagreeVal">0</div></div>
+          <div class="stat"><div class="label">Total</div><div class="value" id="totalVal">0</div></div>
+        </div>
+        <div class="split-bar" aria-hidden="true">
+          <div class="agree" id="agreeSplit" style="width:0"></div>
+          <div class="disagree" id="disagreeSplit" style="width:0"></div>
+        </div>
       </div>
-      <div class="split-bar" aria-hidden="true">
-        <div class="agree" id="agreeSplit" style="width:0"></div>
-        <div class="disagree" id="disagreeSplit" style="width:0"></div>
+
+      <div id="starsResults" hidden>
+        <div class="stats">
+          <div class="stat avg"><div class="label">Average</div><div class="value" id="avgVal">–</div></div>
+          <div class="stat"><div class="label">Ratings</div><div class="value" id="ratingsVal">0</div></div>
+        </div>
+        <div class="dist" id="dist"></div>
       </div>
+
       <p class="msg" id="pctText"></p>
+      <div class="row" style="margin-top:16px">
+        <button id="switchBtn" class="secondary">Switch to ⭐ stars</button>
+      </div>
+      <p class="msg">Switching republishes the same statement with the other variant. Results are kept separately.</p>
     </section>
 
     <section class="card">
       <h2>Set a new statement</h2>
       <form id="statementForm">
+        <div class="mode-toggle" role="radiogroup" aria-label="Variant">
+          <input type="radio" name="mode" id="modeThumbs" value="thumbs" checked><label for="modeThumbs">👍👎 Agree / disagree</label>
+          <input type="radio" name="mode" id="modeStars" value="stars"><label for="modeStars">⭐ 1–5 stars</label>
+        </div>
         <textarea id="newStatement" maxlength="300" placeholder="e.g. The pace of this lesson was right for me." required></textarea>
         <div class="row">
           <button type="submit">Publish to kiosk</button>
           <span class="msg" id="statementMsg" style="margin:0"></span>
         </div>
       </form>
-      <p class="msg">Each statement keeps its own results. The kiosk picks up the new statement within 5 seconds.</p>
+      <p class="msg">Each statement keeps its own results. The kiosk picks up the new statement within a few seconds.</p>
     </section>
 
     <section class="card">
       <h2>History</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Statement</th><th>Created (UTC)</th><th class="num">👍</th><th class="num">👎</th><th class="num">Agree %</th></tr></thead>
+          <thead><tr><th>Statement</th><th>Variant</th><th>Created (UTC)</th><th class="num">Responses</th><th class="num">Result</th></tr></thead>
           <tbody id="historyBody"></tbody>
         </table>
       </div>
       <div class="row" style="margin-top:16px">
-        <button id="exportBtn">Export all votes (CSV)</button>
+        <button id="exportBtn">Export all responses (CSV)</button>
         <button id="logoutBtn" class="secondary">Sign out</button>
       </div>
     </section>

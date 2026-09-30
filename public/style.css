@@ -7,6 +7,7 @@
   --accent: #6d5efc;
   --agree: #22c55e;
   --disagree: #ef4444;
+  --star: #fbbf24;
   --radius: 20px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark;
@@ -175,6 +176,16 @@ body.kiosk {
   animation: pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
 }
 .result[data-answer="disagree"] { border-color: var(--disagree); }
+.result[data-answer="stars"] { border-color: var(--star); }
+.result[data-answer="stars"] .bar-row { grid-template-columns: 3em 1fr 3.2em; }
+
+.result-average {
+  margin: -0.4em 0 1em;
+  text-align: center;
+  font-size: clamp(1.1rem, 2.2vw, 1.4rem);
+  font-weight: 700;
+  color: var(--star);
+}
 
 .result-title {
   margin: 0 0 1em;
@@ -205,6 +216,7 @@ body.kiosk {
 }
 .bar-fill.agree { background: var(--agree); }
 .bar-fill.disagree { background: var(--disagree); }
+.bar-fill.star { background: var(--star); }
 .bar-pct { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .result-total {
@@ -216,6 +228,83 @@ body.kiosk {
 @keyframes pop {
   from { transform: scale(0.85); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
+}
+
+/* Stars variant */
+
+.stars {
+  position: absolute;
+  inset: 0 0 auto 0;
+  padding: clamp(12px, 2.5%, 28px) 16px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(to bottom, rgba(15, 16, 32, 0.75), rgba(15, 16, 32, 0));
+  pointer-events: none;
+}
+
+.star-row {
+  display: flex;
+  gap: clamp(8px, 2.5%, 28px);
+}
+
+.star {
+  width: clamp(48px, 11vw, 120px);
+  transition: transform 0.2s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.star svg { display: block; width: 100%; overflow: visible; }
+.star path {
+  fill: rgba(15, 16, 32, 0.35);
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+  transition: fill 0.15s, stroke 0.15s;
+}
+.star.filled path { fill: var(--star); stroke: var(--star); }
+.star.target { transform: scale(1.15); }
+.star.target path { filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.7)); }
+
+.star-label {
+  margin: 0;
+  font-size: clamp(0.95rem, 1.8vw, 1.2rem);
+  font-weight: 600;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+/* Fingertip cursor; its ring fills while a star is held */
+.cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 60px;
+  height: 60px;
+  margin: -30px 0 0 -30px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  will-change: transform;
+}
+.cursor svg { grid-area: 1 / 1; width: 100%; transform: rotate(-90deg); }
+.cursor-track {
+  fill: rgba(109, 94, 252, 0.25);
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 4;
+}
+.cursor-fill {
+  fill: none;
+  stroke: var(--star);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+.cursor.active .cursor-track { fill: rgba(15, 16, 32, 0.6); }
+.cursor-count {
+  grid-area: 1 / 1;
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: white;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Loading / error notice */
@@ -322,6 +411,48 @@ body.admin {
 .admin th { color: var(--muted); font-weight: 600; }
 .admin td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .table-wrap { overflow-x: auto; }
+
+.mode-toggle {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--bg);
+  margin-bottom: 12px;
+}
+.mode-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.mode-toggle label {
+  padding: 8px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+}
+.mode-toggle input:checked + label { background: var(--surface-2); color: var(--text); }
+.mode-toggle input:focus-visible + label { outline: 2px solid var(--accent); }
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  vertical-align: middle;
+}
+
+.dist { display: grid; gap: 8px; margin-top: 4px; }
+.dist-row {
+  display: grid;
+  grid-template-columns: 3em 1fr 5.5em;
+  gap: 10px;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.dist-row .bar { height: 12px; }
+.dist-row .bar-fill { transition: width 0.5s; }
+.dist-row span:last-child { text-align: right; color: var(--muted); }
+.stat.avg .value { color: var(--star); }
 
 .msg { margin: 10px 0 0; min-height: 1.2em; color: var(--muted); }
 .msg.error { color: var(--disagree); }
