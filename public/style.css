@@ -8,6 +8,7 @@
   --agree: #22c55e;
   --disagree: #ef4444;
   --star: #fbbf24;
+  --track: #22c55e;
   --radius: 20px;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark;
@@ -40,50 +41,18 @@ button.secondary { background: var(--surface-2); }
 /* --- Kiosk ------------------------------------------------------------- */
 
 body.kiosk {
-  display: flex;
-  flex-direction: column;
-  min-height: 100dvh;
-  padding: clamp(12px, 2.5vw, 32px);
-  gap: clamp(12px, 2vw, 24px);
-}
-
-.statement-bar { text-align: center; }
-
-.eyebrow {
-  margin: 0 0 0.3em;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: clamp(0.8rem, 1.4vw, 1rem);
-  font-weight: 600;
-}
-
-#statement {
-  margin: 0 auto;
-  max-width: 28ch;
-  font-size: clamp(1.6rem, 4.2vw, 3.2rem);
-  line-height: 1.15;
-  text-wrap: balance;
-}
-
-.stage {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  min-height: 0;
-}
-
-.camera {
-  position: relative;
-  width: min(100%, calc((100dvh - 300px) * 16 / 9));
-  min-width: min(100%, 320px);
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius);
+  height: 100dvh;
   overflow: hidden;
-  background: var(--surface);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  background: #000;
+}
+
+/* The camera fills the whole screen; everything else floats on top of it */
+.camera {
+  --hand-radius: 12px;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
 }
 
 .camera video,
@@ -96,40 +65,125 @@ body.kiosk {
   transform: scaleX(-1); /* mirror, so it feels like a mirror to the student */
 }
 
-.camera video { transition: filter 0.3s; }
-.camera.dimmed video,
-.camera.dimmed canvas { filter: blur(6px) brightness(0.5); }
+.feed {
+  filter: grayscale(1);
+  transition: filter 0.3s;
+}
+.camera.dimmed .feed { filter: grayscale(1) blur(6px) brightness(0.5); }
+
+/* Fades that keep the statement and instructions readable over any background */
+.scrim {
+  --top: 30%;
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.3) calc(var(--top) * 0.6), rgba(0, 0, 0, 0) var(--top)),
+    linear-gradient(to top, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.3) 15%, rgba(0, 0, 0, 0) 25%);
+  pointer-events: none;
+}
+/* The stars and finger chips make the top block taller */
+body:not([data-mode="thumbs"]) .scrim { --top: 45%; }
+
+/*
+ * Tracking square around the hand. kiosk.js sets --hand-x/--hand-y (top-left
+ * corner) and --hand-size on .camera; the colour cut-out and the border both
+ * follow them, so the hand shows in full colour on top of the grey video.
+ */
+.hand-color {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(
+    var(--hand-y)
+    calc(100% - var(--hand-x) - var(--hand-size))
+    calc(100% - var(--hand-y) - var(--hand-size))
+    var(--hand-x)
+    round var(--hand-radius)
+  );
+}
+
+.hand-box {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--hand-size);
+  height: var(--hand-size);
+  transform: translate(var(--hand-x), var(--hand-y));
+  border: 4px solid var(--track);
+  border-radius: var(--hand-radius);
+  box-shadow: 0 0 18px rgba(34, 197, 94, 0.55);
+  pointer-events: none;
+}
+
+.camera.dimmed :is(.hand-color, canvas, .hand-box) { display: none; }
+
+/* Statement on top, ring and result in the middle, instructions at the bottom */
+.hud {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  pointer-events: none;
+}
+
+.statement-bar,
+.instructions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85), 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.statement-bar {
+  grid-row: 1;
+  gap: clamp(12px, 2vh, 24px);
+  padding: clamp(20px, 4vh, 48px) clamp(16px, 4vw, 64px) 0;
+}
+
+#statement {
+  margin: 0;
+  max-width: 28ch;
+  font-size: clamp(1.8rem, 4.5vw, 3.6rem);
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.instructions {
+  grid-row: 3;
+  gap: 8px;
+  padding: 16px clamp(16px, 4vw, 64px) clamp(16px, 3vh, 32px);
+}
 
 .status {
   margin: 0;
-  font-size: clamp(1rem, 2.2vw, 1.5rem);
-  color: var(--muted);
-  text-align: center;
-  min-height: 1.5em;
+  max-width: 40ch;
+  font-size: clamp(1.1rem, 2.6vw, 1.9rem);
+  font-weight: 600;
+  line-height: 1.3;
+  min-height: 1.3em;
+  text-wrap: balance;
 }
 
 .privacy {
-  text-align: center;
+  margin: 0;
   font-size: 0.85rem;
-  color: var(--muted);
-  opacity: 0.7;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 /* Hold ring */
 
 .ring-wrap {
   --color: var(--agree);
-  position: absolute;
-  inset: 0;
+  grid-area: 2 / 1;
+  container-type: size;
   display: grid;
   place-items: center;
-  pointer-events: none;
 }
 .ring-wrap[data-answer="disagree"] { --color: var(--disagree); }
 
 .ring {
   grid-area: 1 / 1;
-  width: min(45%, 260px);
+  width: min(260px, 90cqmin);
   transform: rotate(-90deg);
   filter: drop-shadow(0 4px 24px rgba(0, 0, 0, 0.5));
 }
@@ -147,6 +201,7 @@ body.kiosk {
 
 .ring-label {
   grid-area: 1 / 1;
+  position: relative; /* paint above the rotated ring's dark fill */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -164,11 +219,11 @@ body.kiosk {
 /* Result card */
 
 .result {
-  position: absolute;
-  inset: 0;
-  margin: auto;
+  grid-area: 2 / 1;
+  place-self: center;
   width: min(90%, 520px);
-  height: fit-content;
+  max-height: 100%;
+  overflow: hidden;
   padding: clamp(18px, 3vw, 32px);
   border-radius: var(--radius);
   background: rgba(26, 28, 51, 0.92);
@@ -233,15 +288,10 @@ body.kiosk {
 /* Stars variant */
 
 .stars {
-  position: absolute;
-  inset: 0 0 auto 0;
-  padding: clamp(12px, 2.5%, 28px) 16px 40px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  background: linear-gradient(to bottom, rgba(15, 16, 32, 0.75), rgba(15, 16, 32, 0));
-  pointer-events: none;
 }
 
 .star-row {
@@ -290,9 +340,6 @@ body.kiosk {
 .finger-chip.filled { background: var(--star); border-color: var(--star); color: #1a1c33; }
 .finger-chip.target { transform: scale(1.15); box-shadow: 0 0 16px rgba(251, 191, 36, 0.6); }
 .ring-wrap[data-answer="fingers"] { --color: var(--star); }
-/* Keep the ring clear of the number chips at the top */
-body[data-mode="fingers"] .ring-wrap { top: 38%; }
-body[data-mode="fingers"] .ring { width: auto; height: min(90%, 260px); }
 
 /* Fingertip cursor; its ring fills while a star is held */
 .cursor {

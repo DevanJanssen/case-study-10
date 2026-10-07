@@ -7,33 +7,41 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="kiosk" data-mode="thumbs">
-  <header class="statement-bar">
-    <p class="eyebrow" id="eyebrow">Do you agree?</p>
-    <h1 id="statement">Loading statement…</h1>
-  </header>
+  <main class="camera" id="camera">
+    <video class="feed" id="video" playsinline muted autoplay></video>
 
-  <main class="stage">
-    <div class="camera" id="camera">
-      <video id="video" playsinline muted autoplay></video>
-      <canvas id="overlay"></canvas>
+    <!-- Loading / error / start overlay, under the statement and instructions -->
+    <div class="notice" id="notice">
+      <p id="noticeText">Loading hand tracking…</p>
+      <button id="startBtn" hidden>Start camera</button>
+    </div>
 
-      <!-- Stars variant: point the index finger at a star to select a rating -->
-      <div class="stars" id="stars" aria-label="Rating" hidden>
-        <div class="star-row" id="starRow"></div>
-        <p class="star-label" id="starLabel">Point at a star</p>
-      </div>
-      <!-- Fingers variant: hold up 1–5 fingers to give a rating -->
-      <div class="stars" id="fingers" aria-label="Rating" hidden>
-        <div class="finger-row" id="fingerRow"></div>
-        <p class="star-label" id="fingerLabel">Hold up 1 to 5 fingers</p>
-      </div>
-      <div class="cursor" id="cursor" hidden>
-        <svg viewBox="0 0 60 60" aria-hidden="true">
-          <circle class="cursor-track" cx="30" cy="30" r="24"></circle>
-          <circle class="cursor-fill" id="cursorFill" cx="30" cy="30" r="24"></circle>
-        </svg>
-        <span class="cursor-count" id="cursorCount"></span>
-      </div>
+    <!-- Dark fades behind the statement and instructions, kept under the hand square so they don't dim it -->
+    <div class="scrim"></div>
+
+    <!-- Square that follows the tracked hand: a full-colour cut-out of the camera, the hand skeleton
+         and a green border. They sit outside the grey video so its filter doesn't touch them. -->
+    <div class="hand-color" id="handColor" hidden>
+      <video id="colorVideo" playsinline muted autoplay></video>
+    </div>
+    <canvas id="overlay"></canvas>
+    <div class="hand-box" id="handBox" hidden></div>
+
+    <div class="hud">
+      <header class="statement-bar">
+        <h1 id="statement">Loading statement…</h1>
+
+        <!-- Stars variant: point the index finger at a star to select a rating -->
+        <div class="stars" id="stars" aria-label="Rating" hidden>
+          <div class="star-row" id="starRow"></div>
+          <p class="star-label" id="starLabel">Point at a star</p>
+        </div>
+        <!-- Fingers variant: hold up 1–5 fingers to give a rating -->
+        <div class="stars" id="fingers" aria-label="Rating" hidden>
+          <div class="finger-row" id="fingerRow"></div>
+          <p class="star-label" id="fingerLabel">Hold up 1 to 5 fingers</p>
+        </div>
+      </header>
 
       <!-- Hold-progress ring, shown while a thumb gesture is held -->
       <div class="ring-wrap" id="ringWrap" hidden>
@@ -55,17 +63,20 @@
         <p class="result-total" id="resultTotal"></p>
       </div>
 
-      <!-- Loading / error / start overlay -->
-      <div class="notice" id="notice">
-        <p id="noticeText">Loading hand tracking…</p>
-        <button id="startBtn" hidden>Start camera</button>
-      </div>
+      <footer class="instructions">
+        <p class="status" id="status" aria-live="polite">Show 👍 to agree or 👎 to disagree, and hold it for 3 seconds</p>
+        <p class="privacy">The camera image is processed on this device only and is never stored or sent.</p>
+      </footer>
     </div>
 
-    <p class="status" id="status" aria-live="polite">Show 👍 to agree or 👎 to disagree, and hold it for 3 seconds</p>
+    <div class="cursor" id="cursor" hidden>
+      <svg viewBox="0 0 60 60" aria-hidden="true">
+        <circle class="cursor-track" cx="30" cy="30" r="24"></circle>
+        <circle class="cursor-fill" id="cursorFill" cx="30" cy="30" r="24"></circle>
+      </svg>
+      <span class="cursor-count" id="cursorCount"></span>
+    </div>
   </main>
-
-  <footer class="privacy">The camera image is processed on this device only and is never stored or sent.</footer>
 
   <script type="module" src="kiosk.js"></script>
 </body>

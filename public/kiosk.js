@@ -6,7 +6,10 @@ import {
 
 // --- Tunables ---------------------------------------------------------------
 
-const HOLD_MS = 3000;          // how long a gesture must be held to count
+// How long each variant's gesture must be held before it counts
+const THUMBS_HOLD_MS = 3000;
+const STARS_HOLD_MS = 1000;
+const FINGERS_HOLD_MS = 3000;
 const MIN_SCORE = 0.6;         // minimum model confidence for a thumb gesture
 const GRACE_MS = 250;          // tolerate brief detection drop-outs while holding
 const RESULT_MS = 4000;        // how long the result card is shown
@@ -17,6 +20,8 @@ const SMOOTHING = 0.5;         // 0 = raw fingertip, closer to 1 = steadier but 
 const FINGER_RATIO = 1.15;     // finger is "up" when tip-to-wrist > this × joint-to-wrist
 const THUMB_RATIO = 1.2;       // thumb is "out" when tip-to-index-base > this × thumb-base-to-index-base
 const STABLE_FRAMES = 5;       // finger count must be the same this many frames in a row before it counts
+const BOX_PADDING = 0.15;      // extra room around the hand in the tracking square, as a fraction of its size
+const BOX_SMOOTHING = 0.4;     // 0 = raw position, closer to 1 = steadier but laggier tracking square
 
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm";
 const MODEL_URL =
@@ -40,7 +45,7 @@ const FINGERS = [ // [pip, tip] for index, middle, ring, pinky
   [6, 8], [10, 12], [14, 16], [18, 20],
 ];
 
-const HOLD_TEXT = `${HOLD_MS / 1000} ${HOLD_MS === 1000 ? "second" : "seconds"}`;
+const holdText = (ms) => `${ms / 1000} ${ms === 1000 ? "second" : "seconds"}`;
 
 const STAR_PATH =
   "M12 2.6l2.83 5.9 6.47.78-4.77 4.46 1.23 6.43L12 17.02l-5.76 3.15 1.23-6.43L2.7 9.28l6.47-.78z";
@@ -49,14 +54,16 @@ const STAR_PATH =
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
+const colorVideo = $("colorVideo");
 const canvas = $("overlay");
 const ctx = canvas.getContext("2d");
 const drawing = new DrawingUtils(ctx);
 const els = {
-  eyebrow: $("eyebrow"),
   statement: $("statement"),
   status: $("status"),
   camera: $("camera"),
+  handBox: $("handBox"),
+  handColor: $("handColor"),
   notice: $("notice"),
   noticeText: $("noticeText"),
   startBtn: $("startBtn"),
@@ -113,6 +120,7 @@ let lastKeySeen = 0;
 let lastHandSeen = 0;
 let lastVideoTime = -1;
 let cursorPos = null;           // smoothed fingertip position in camera-box pixels
+let handBox = null;             // smoothed tracking square { x, y, size } in camera-box pixels
 let fingerCount = { stable: null, candidate: null, frames: 0 };
 
 // --- Variants ---------------------------------------------------------------
@@ -123,8 +131,8 @@ let fingerCount = { stable: null, candidate: null, frames: 0 };
 
 const variants = {
   thumbs: {
-    eyebrow: "Do you agree?",
-    idleText: `Show 👍 to agree or 👎 to disagree, and hold it for ${HOLD_TEXT}`,
+    holdMs: THUMBS_HOLD_MS,
+    idleText: `Show 👍 to agree or 👎 to disagree, and hold it for ${holdText(THUMBS_HOLD_MS)}`,
 
     read(result) {
       const top = result.gestures[0]?.[0];
@@ -137,7 +145,7 @@ const variants = {
       els.ringWrap.dataset.answer = g.answer;
       els.ringEmoji.textContent = g.emoji;
       els.ringFill.style.strokeDashoffset = RING_LENGTH * (1 - progress);
-      els.ringCount.textContent = secondsLeft(progress);
+      els.ringCount.textContent = secondsLeft(progress, THUMBS_HOLD_MS);
       setStatus(`Hold ${g.emoji} to ${g.label.toLowerCase()}…`);
     },
 
@@ -149,8 +157,8 @@ const variants = {
   },
 
   stars: {
-    eyebrow: "How would you rate this?",
-    idleText: `Point your index finger at a star and hold it for ${HOLD_TEXT}`,
+    holdMs: STARS_HOLD_MS,
+    idleText: `Point your index finger at a star and hold it for ${holdText(STARS_HOLD_MS)}`,
 
     read(result) {
       const hand = result.landmarks[0];
@@ -174,7 +182,7 @@ const variants = {
       paintStars(key);
       els.cursor.classList.add("active");
       els.cursorFill.style.strokeDashoffset = CURSOR_LENGTH * (1 - progress);
-      els.cursorCount.textContent = secondsLeft(progress);
+      els.cursorCount.textContent = secondsLeft(progress, STARS_HOLD_MS);
       els.starLabel.textContent = `${key} of 5 stars`;
       setStatus(`Hold to give ${key} ${key === 1 ? "star" : "stars"}…`);
     },
@@ -191,8 +199,8 @@ const variants = {
   },
 
   fingers: {
-    eyebrow: "How would you rate this?",
-    idleText: `Hold up 1 to 5 fingers for ${HOLD_TEXT} to give a rating`,
+    holdMs: FINGERS_HOLD_MS,
+    idleText: `Hold up 1 to 5 fingers for ${holdText(FINGERS_HOLD_MS)} to give a rating`,
 
     read(result) {
       const hand = result.worldLandmarks[0];
@@ -228,7 +236,6 @@ function applyMode() {
   els.stars.hidden = mode !== "stars";
   els.fingers.hidden = mode !== "fingers";
   els.cursor.hidden = true;
-  els.eyebrow.textContent = variant().eyebrow;
   Object.values(variants).forEach((v) => v.clear());
 }
 
@@ -363,7 +370,8 @@ async function startCamera() {
     audio: false,
   });
   video.srcObject = stream;
-  await video.play();
+  colorVideo.srcObject = stream;
+  await Promise.all([video.play(), colorVideo.play()]);
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 }
@@ -444,6 +452,36 @@ function drawHand(result) {
     });
     drawing.drawLandmarks(landmarks, { color: "#6d5efc", lineWidth: 2, radius: 4 });
   }
+  drawHandBox(result.landmarks[0]);
+}
+
+/** Keep a square around the tracked hand, padded and centred on its landmarks. */
+function drawHandBox(hand) {
+  if (!hand) {
+    handBox = null;
+    els.handBox.hidden = els.handColor.hidden = true;
+    return;
+  }
+  const xs = hand.map((lm) => lm.x);
+  const ys = hand.map((lm) => lm.y);
+  // toCameraBox mirrors x, so the corners can come back swapped
+  const a = toCameraBox({ x: Math.min(...xs), y: Math.min(...ys) });
+  const b = toCameraBox({ x: Math.max(...xs), y: Math.max(...ys) });
+  const raw = {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+    size: Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) * (1 + 2 * BOX_PADDING),
+  };
+  const k = 1 - BOX_SMOOTHING;
+  handBox = handBox
+    ? { x: handBox.x + (raw.x - handBox.x) * k, y: handBox.y + (raw.y - handBox.y) * k, size: handBox.size + (raw.size - handBox.size) * k }
+    : raw;
+
+  const { style } = els.camera;
+  style.setProperty("--hand-x", `${handBox.x - handBox.size / 2}px`);
+  style.setProperty("--hand-y", `${handBox.y - handBox.size / 2}px`);
+  style.setProperty("--hand-size", `${handBox.size}px`);
+  els.handBox.hidden = els.handColor.hidden = false;
 }
 
 function tick(key, handVisible, now) {
@@ -463,7 +501,7 @@ function tick(key, handVisible, now) {
         resetToIdle();
         return;
       }
-      const progress = Math.min((now - holdStart) / HOLD_MS, 1);
+      const progress = Math.min((now - holdStart) / variant().holdMs, 1);
       variant().render(holdKey, progress);
       if (progress >= 1) submitVote(variant().payload(holdKey));
       break;
@@ -485,8 +523,8 @@ function startHold(key, now) {
   variant().render(key, 0);
 }
 
-function secondsLeft(progress) {
-  return Math.max(1, Math.ceil((HOLD_MS * (1 - progress)) / 1000));
+function secondsLeft(progress, holdMs) {
+  return Math.max(1, Math.ceil((holdMs * (1 - progress)) / 1000));
 }
 
 function resetToIdle() {
