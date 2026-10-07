@@ -8,7 +8,9 @@
 </head>
 <body class="kiosk" data-mode="thumbs">
   <main class="camera" id="camera">
-    <video class="feed" id="video" playsinline muted autoplay></video>
+    <!-- Raw sensor image. It is drawn upright onto the canvases below. -->
+    <video class="source" id="video" playsinline muted autoplay></video>
+    <canvas class="feed" id="feed"></canvas>
 
     <!-- Loading / error / start overlay, under the statement and instructions -->
     <div class="notice" id="notice">
@@ -22,7 +24,7 @@
     <!-- Square that follows the tracked hand: a full-colour cut-out of the camera, the hand skeleton
          and a green border. They sit outside the grey video so its filter doesn't touch them. -->
     <div class="hand-color" id="handColor" hidden>
-      <video id="colorVideo" playsinline muted autoplay></video>
+      <canvas id="colorFeed"></canvas>
     </div>
     <canvas id="overlay"></canvas>
     <div class="hand-box" id="handBox" hidden></div>

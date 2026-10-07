@@ -22,6 +22,10 @@ const THUMB_RATIO = 1.2;       // thumb is "out" when tip-to-index-base > this �
 const STABLE_FRAMES = 5;       // finger count must be the same this many frames in a row before it counts
 const BOX_PADDING = 0.15;      // extra room around the hand in the tracking square, as a fraction of its size
 const BOX_SMOOTHING = 0.4;     // 0 = raw position, closer to 1 = steadier but laggier tracking square
+// The camera is mounted upright, but the sensor image arrives turned 270°
+// clockwise. Rotating it 90° clockwise stands the picture up and, from a
+// 1920×1080 frame, yields the 1080×1920 portrait image the vertical display needs.
+const CAMERA_ROTATION_DEG = 90;
 
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm";
 const MODEL_URL =
@@ -54,7 +58,12 @@ const STAR_PATH =
 
 const $ = (id) => document.getElementById(id);
 const video = $("video");
-const colorVideo = $("colorVideo");
+const feedCanvas = $("feed");
+const feedCtx = feedCanvas.getContext("2d");
+const colorCanvas = $("colorFeed");
+const colorCtx = colorCanvas.getContext("2d");
+const frameCanvas = document.createElement("canvas");
+const frameCtx = frameCanvas.getContext("2d", { willReadFrequently: true });
 const canvas = $("overlay");
 const ctx = canvas.getContext("2d");
 const drawing = new DrawingUtils(ctx);
@@ -290,16 +299,16 @@ function indexExtended(hand) {
 }
 
 /**
- * Convert a normalized landmark to pixels inside the camera box, taking the
- * mirrored, object-fit: cover video into account so it lines up with the image.
+ * Convert a normalized landmark to pixels inside the camera box. The upright
+ * frame is already mirrored, and object-fit: cover may crop it.
  */
 function toCameraBox(lm) {
   const box = els.camera.getBoundingClientRect();
-  const scale = Math.max(box.width / video.videoWidth, box.height / video.videoHeight);
-  const w = video.videoWidth * scale;
-  const h = video.videoHeight * scale;
+  const scale = Math.max(box.width / frameCanvas.width, box.height / frameCanvas.height);
+  const w = frameCanvas.width * scale;
+  const h = frameCanvas.height * scale;
   return {
-    x: (1 - lm.x) * w - (w - box.width) / 2,
+    x: lm.x * w - (w - box.width) / 2,
     y: lm.y * h - (h - box.height) / 2,
   };
 }
@@ -378,7 +387,8 @@ async function openCamera(videoConstraints) {
 }
 
 async function startCamera() {
-  const size = { width: { ideal: 1080 }, height: { ideal: 1920 } };
+  // Landscape sensor frame. renderUprightFrame turns it into 1080×1920.
+  const size = { width: { ideal: 1920 }, height: { ideal: 1080 } };
   // Device names stay blank until camera permission is granted, so open any
   // camera first, then switch to the Logitech StreamCam when it is plugged in.
   let stream = await openCamera({ facingMode: "user", ...size });
@@ -400,10 +410,7 @@ async function startCamera() {
   console.info("Using camera:", label);
 
   video.srcObject = stream;
-  colorVideo.srcObject = stream;
-  await Promise.all([video.play(), colorVideo.play()]);
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+  await video.play();
 }
 
 function showNotice(text, { button = false } = {}) {
@@ -457,13 +464,52 @@ els.startBtn.addEventListener("click", async () => {
 
 // --- Main loop --------------------------------------------------------------
 
+/**
+ * Draw the sensor frame upright and mirrored into the portrait display size.
+ * Hand tracking reads this same bitmap, so gestures match what is on screen.
+ */
+function renderUprightFrame() {
+  const srcW = video.videoWidth;
+  const srcH = video.videoHeight;
+  if (!srcW || !srcH) return false;
+
+  const turns = ((CAMERA_ROTATION_DEG % 360) + 360) % 360;
+  const swap = turns % 180 !== 0;
+  const width = swap ? srcH : srcW;
+  const height = swap ? srcW : srcH;
+
+  if (frameCanvas.width !== width || frameCanvas.height !== height) {
+    frameCanvas.width = width;
+    frameCanvas.height = height;
+    feedCanvas.width = width;
+    feedCanvas.height = height;
+    colorCanvas.width = width;
+    colorCanvas.height = height;
+    canvas.width = width;
+    canvas.height = height;
+    console.info(`Camera frame ${srcW}×${srcH}, shown upright as ${width}×${height}`);
+  }
+
+  frameCtx.save();
+  frameCtx.translate(width / 2, height / 2);
+  frameCtx.scale(-1, 1); // mirror in the upright picture, so it feels like a mirror
+  frameCtx.rotate((turns * Math.PI) / 180);
+  frameCtx.drawImage(video, -srcW / 2, -srcH / 2, srcW, srcH);
+  frameCtx.restore();
+
+  feedCtx.drawImage(frameCanvas, 0, 0);
+  colorCtx.drawImage(frameCanvas, 0, 0);
+  return true;
+}
+
 function loop() {
   requestAnimationFrame(loop);
   if (video.readyState < 2 || video.currentTime === lastVideoTime) return;
   lastVideoTime = video.currentTime;
+  if (!renderUprightFrame()) return;
 
   const now = performance.now();
-  const result = recognizer.recognizeForVideo(video, now);
+  const result = recognizer.recognizeForVideo(frameCanvas, now);
 
   drawHand(result);
 
@@ -494,7 +540,7 @@ function drawHandBox(hand) {
   }
   const xs = hand.map((lm) => lm.x);
   const ys = hand.map((lm) => lm.y);
-  // toCameraBox mirrors x, so the corners can come back swapped
+  // The two corners can come back swapped once they are mapped into the camera box
   const a = toCameraBox({ x: Math.min(...xs), y: Math.min(...ys) });
   const b = toCameraBox({ x: Math.max(...xs), y: Math.max(...ys) });
   const raw = {
