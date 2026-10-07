@@ -364,11 +364,41 @@ async function initRecognizer() {
   }
 }
 
+function pickStreamCam(devices) {
+  const cameras = devices.filter((device) => device.kind === "videoinput" && device.label);
+  return (
+    cameras.find((device) => /streamcam/i.test(device.label)) ||
+    cameras.find((device) => /logitech/i.test(device.label)) ||
+    null
+  );
+}
+
+async function openCamera(videoConstraints) {
+  return navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+}
+
 async function startCamera() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: false,
-  });
+  const size = { width: { ideal: 1080 }, height: { ideal: 1920 } };
+  // Device names stay blank until camera permission is granted, so open any
+  // camera first, then switch to the Logitech StreamCam when it is plugged in.
+  let stream = await openCamera({ facingMode: "user", ...size });
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const preferred = pickStreamCam(devices);
+  const currentId = stream.getVideoTracks()[0]?.getSettings().deviceId;
+
+  if (preferred && preferred.deviceId !== currentId) {
+    stream.getTracks().forEach((track) => track.stop());
+    try {
+      stream = await openCamera({ deviceId: { exact: preferred.deviceId }, ...size });
+    } catch (err) {
+      console.warn("Could not open the Logitech StreamCam, using the default camera:", err);
+      stream = await openCamera({ facingMode: "user", ...size });
+    }
+  }
+
+  const label = stream.getVideoTracks()[0]?.label || "unknown camera";
+  console.info("Using camera:", label);
+
   video.srcObject = stream;
   colorVideo.srcObject = stream;
   await Promise.all([video.play(), colorVideo.play()]);
