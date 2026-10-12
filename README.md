@@ -27,7 +27,7 @@ Questions and answers are stored in Postgres 17, which `docker-compose.yml` runs
 
 - `questions`: the text and the variants it is assigned to (`variants`, an array).
 - `answers`: one row per answer, with the question, the variant it was given in, and `answer` (agree/disagree, thumbs) or `rating` (1–5, stars and fingers). Deleting a question deletes its answers.
-- `settings`: the variant the kiosk runs.
+- `settings`: the variant and camera the kiosk uses.
 
 To start over, run `docker compose down -v`, which also deletes the volume.
 
@@ -58,6 +58,7 @@ Statements with the same text become one question, assigned to every variant the
 ## Admin page
 
 - **Kiosk variant.** The switcher at the top sets the variant the kiosk runs: 👍👎, ⭐ or ✋. Each option shows how many questions are assigned to it.
+- **Kiosk camera.** Choose the MacBook camera (landscape, for testing) or the Logitech StreamCam (portrait, for the kiosk display). See [Cameras](#cameras).
 - **Add a question** and tick the variants it should be asked in. A question can have any combination. A question with none is kept but never shown.
 - **Questions.** Every question, newest first. Questions the kiosk is asking now are marked *On kiosk*. Each one shows its results per variant, and these update live as answers come in. *Show answers* opens the 1–5 breakdown and every single answer with its time.
 - **Edit** changes the text or the variants. The answers stay with the question. Answers from a variant you untick are kept and marked *not asked anymore*.
@@ -70,10 +71,10 @@ Variants are `thumbs`, `stars` and `fingers`.
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/api/kiosk` | – | `{variant, questions: [{id, text}]}`: the active variant and the questions assigned to it |
+| GET | `/api/kiosk` | – | `{variant, camera, questions: [{id, text}]}`: the kiosk settings and the questions assigned to the active variant |
 | POST | `/api/answers` | – | `{questionId, variant, answer: "agree" \| "disagree"}` for thumbs, or `{questionId, variant, rating: 1–5}` for stars and fingers. Returns the question's updated results for that variant |
-| GET | `/api/variant` | – | `{variant}`: the variant the kiosk runs |
-| PUT | `/api/variant` | admin | `{variant}` switches the kiosk to another variant |
+| GET | `/api/settings` | – | `{variant, camera}`: the variant and camera the kiosk uses. `camera` is `macbook` or `logitech` |
+| PATCH | `/api/settings` | admin | `{variant?, camera?}` changes either or both |
 | GET | `/api/questions` | admin | All questions, newest first, each with `results` per variant |
 | POST | `/api/questions` | admin | `{text, variants}` adds a question |
 | PATCH | `/api/questions/:id` | admin | `{text?, variants?}` changes a question |
@@ -82,6 +83,17 @@ Variants are `thumbs`, `stars` and `fingers`.
 | GET | `/api/export.csv` | admin | All answers as CSV |
 
 Admin requests send the password in the `x-admin-password` header.
+
+## Cameras
+
+You pick the camera on the admin page. The kiosk switches within a few seconds, without a reload. Each camera is defined in `CAMERAS` at the top of `public/kiosk.js`:
+
+| Camera | Found by name | Picture |
+| --- | --- | --- |
+| **MacBook camera** | "FaceTime", "MacBook" or "Built-in" | Landscape (up to 1920×1080), as the sensor delivers it. For testing on a laptop. |
+| **Logitech StreamCam** | "StreamCam", then "Logitech" | Portrait 1080×1920 for the vertical display. Mount the camera upright: the kiosk rotates its picture 270°. |
+
+The picture is always mirrored, so it feels like a mirror. If the chosen camera isn't connected, the kiosk uses the browser's default camera and logs a warning in the console. To correct the orientation of a camera, change its `rotation` (clockwise, in degrees).
 
 ## Camera and HTTPS
 

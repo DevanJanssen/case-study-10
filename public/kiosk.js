@@ -22,10 +22,29 @@ const THUMB_RATIO = 1.2;       // thumb is "out" when tip-to-index-base > this �
 const STABLE_FRAMES = 5;       // finger count must be the same this many frames in a row before it counts
 const BOX_PADDING = 0.15;      // extra room around the hand in the tracking square, as a fraction of its size
 const BOX_SMOOTHING = 0.4;     // 0 = raw position, closer to 1 = steadier but laggier tracking square
-// The camera is mounted upright, but the sensor image arrives turned 270°
-// clockwise. Rotating it 90° clockwise stands the picture up and, from a
-// 1920×1080 frame, yields the 1080×1920 portrait image the vertical display needs.
-const CAMERA_ROTATION_DEG = 90;
+
+// The cameras that can be picked on the admin page. `labels` find the device
+// by name, in order of preference. `rotation` turns each sensor frame clockwise
+// before it is mirrored and shown.
+const CAMERAS = {
+  // The built-in MacBook camera, for testing on a laptop: the landscape
+  // picture as the sensor delivers it.
+  macbook: {
+    labels: [/facetime/i, /macbook/i, /built-in/i],
+    size: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+    rotation: 0,
+  },
+  // The Logitech StreamCam, mounted upright next to the portrait display. Its
+  // sensor image arrives turned 90° clockwise. Rotating it a further 270°
+  // stands the picture up and, from a 1920×1080 frame, yields the 1080×1920
+  // portrait image the vertical display needs.
+  logitech: {
+    labels: [/streamcam/i, /logitech/i],
+    size: { width: { ideal: 1920 }, height: { ideal: 1080 } },
+    rotation: 270,
+  },
+};
+const DEFAULT_CAMERA = "logitech";
 
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm";
 const MODEL_URL =
@@ -134,6 +153,11 @@ let lastVideoTime = -1;
 let cursorPos = null;           // smoothed fingertip position in camera-box pixels
 let handBox = null;             // smoothed tracking square { x, y, size } in camera-box pixels
 let fingerCount = { stable: null, candidate: null, frames: 0 };
+let cameraChoice = DEFAULT_CAMERA; // camera picked on the admin page, a key of CAMERAS
+let cameraOpened = null;        // the CAMERAS key startCamera last opened, or is opening
+let cameraStarted = false;      // after the first start, a new choice on the admin page switches right away
+let cameraSeq = 0;              // a newer startCamera call makes an older one stale
+let rotation = 0;               // clockwise turn of the open camera's frames
 
 // --- Variants ---------------------------------------------------------------
 //
@@ -348,6 +372,9 @@ async function loadQuestions() {
     const known = new Set(questions.map((q) => q.id));
     questions = next.questions;
 
+    cameraChoice = CAMERAS[next.camera] ? next.camera : DEFAULT_CAMERA;
+    if (cameraStarted && cameraChoice !== cameraOpened) switchCamera();
+
     if (next.variant !== mode) {
       mode = next.variant;
       queue = [];
@@ -418,44 +445,77 @@ async function initRecognizer() {
   }
 }
 
-function pickStreamCam(devices) {
+/** The first camera whose name matches one of `labels`, tried in order, or null. */
+function pickCamera(devices, labels) {
   const cameras = devices.filter((device) => device.kind === "videoinput" && device.label);
-  return (
-    cameras.find((device) => /streamcam/i.test(device.label)) ||
-    cameras.find((device) => /logitech/i.test(device.label)) ||
-    null
-  );
+  for (const label of labels) {
+    const match = cameras.find((device) => label.test(device.label));
+    if (match) return match;
+  }
+  return null;
 }
 
 async function openCamera(videoConstraints) {
   return navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
 }
 
+/** Open the camera picked on the admin page, replacing the one that is open. */
 async function startCamera() {
-  // Landscape sensor frame. renderUprightFrame turns it into 1080×1920.
-  const size = { width: { ideal: 1920 }, height: { ideal: 1080 } };
-  // Device names stay blank until camera permission is granted, so open any
-  // camera first, then switch to the Logitech StreamCam when it is plugged in.
-  let stream = await openCamera({ facingMode: "user", ...size });
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const preferred = pickStreamCam(devices);
-  const currentId = stream.getVideoTracks()[0]?.getSettings().deviceId;
+  const name = cameraChoice;
+  const { labels, size, rotation: turn } = CAMERAS[name];
+  const seq = ++cameraSeq;
+  cameraOpened = name;
+  // Release the open camera first: some cameras can't be opened twice.
+  video.srcObject?.getTracks().forEach((track) => track.stop());
+
+  // Device names stay blank until camera permission is granted, so then open
+  // any camera first, and switch to the chosen one when it is plugged in.
+  let devices = await navigator.mediaDevices.enumerateDevices();
+  let stream = null;
+  if (!devices.some((device) => device.kind === "videoinput" && device.label)) {
+    stream = await openCamera({ facingMode: "user", ...size });
+    devices = await navigator.mediaDevices.enumerateDevices();
+  }
+  const preferred = pickCamera(devices, labels);
+  const currentId = stream?.getVideoTracks()[0]?.getSettings().deviceId;
 
   if (preferred && preferred.deviceId !== currentId) {
-    stream.getTracks().forEach((track) => track.stop());
+    stream?.getTracks().forEach((track) => track.stop());
     try {
       stream = await openCamera({ deviceId: { exact: preferred.deviceId }, ...size });
     } catch (err) {
-      console.warn("Could not open the Logitech StreamCam, using the default camera:", err);
+      console.warn(`Could not open ${preferred.label}, using the default camera:`, err);
       stream = await openCamera({ facingMode: "user", ...size });
     }
+  } else if (!preferred) {
+    console.warn(`No camera found for "${name}", using the default camera.`);
+    stream ??= await openCamera({ facingMode: "user", ...size });
+  }
+
+  // The admin picked another camera while this one was opening.
+  if (seq !== cameraSeq) {
+    stream.getTracks().forEach((track) => track.stop());
+    return;
   }
 
   const label = stream.getVideoTracks()[0]?.label || "unknown camera";
-  console.info("Using camera:", label);
+  console.info(`Using camera: ${label} (${name}, rotated ${turn}°)`);
 
   video.srcObject = stream;
+  rotation = turn;
+  handBox = null;
+  cursorPos = null;
   await video.play();
+}
+
+async function switchCamera() {
+  try {
+    await startCamera();
+    els.notice.hidden = true;
+  } catch (err) {
+    console.error(err);
+    showNotice("Could not open the camera. Check that it is plugged in, then reload the page.");
+  }
 }
 
 function showNotice(text, { button = false } = {}) {
@@ -485,6 +545,7 @@ async function boot() {
   try {
     showNotice("Starting camera…");
     await startCamera();
+    cameraStarted = true;
   } catch (err) {
     console.error(err);
     // Some browsers require a user gesture before the camera may start.
@@ -499,6 +560,7 @@ async function boot() {
 els.startBtn.addEventListener("click", async () => {
   try {
     await startCamera();
+    cameraStarted = true;
     els.notice.hidden = true;
     requestAnimationFrame(loop);
   } catch (err) {
@@ -510,15 +572,16 @@ els.startBtn.addEventListener("click", async () => {
 // --- Main loop --------------------------------------------------------------
 
 /**
- * Draw the sensor frame upright and mirrored into the portrait display size.
- * Hand tracking reads this same bitmap, so gestures match what is on screen.
+ * Draw the sensor frame upright and mirrored: landscape for the MacBook camera,
+ * portrait for the StreamCam. Hand tracking reads this same bitmap, so
+ * gestures match what is on screen.
  */
 function renderUprightFrame() {
   const srcW = video.videoWidth;
   const srcH = video.videoHeight;
   if (!srcW || !srcH) return false;
 
-  const turns = ((CAMERA_ROTATION_DEG % 360) + 360) % 360;
+  const turns = ((rotation % 360) + 360) % 360;
   const swap = turns % 180 !== 0;
   const width = swap ? srcH : srcW;
   const height = swap ? srcW : srcH;

@@ -78,8 +78,9 @@ function showDashboard() {
 // --- Data -------------------------------------------------------------------
 
 let activeVariant = null;
+let activeCamera = null;
 let questions = [];          // [{ id, text, variants, created_at, results: { [variant]: results } }]
-let refreshSeq = 0;          // a newer refresh or a variant switch makes older responses stale
+let refreshSeq = 0;          // a newer refresh or a settings change makes older responses stale
 const editing = new Set();   // question ids with an open edit form; refreshes leave those alone
 const expanded = new Set();  // question ids whose answers are shown
 const answers = new Map();   // question id → { total, rows } for expanded questions
@@ -90,8 +91,8 @@ const totalOf = (q) => Object.values(q.results).reduce((n, r) => n + r.total, 0)
 async function refresh() {
   const seq = ++refreshSeq;
   try {
-    const [{ variant }, list] = await Promise.all([
-      api("/api/variant").then((r) => r.json()),
+    const [{ variant, camera }, list] = await Promise.all([
+      api("/api/settings").then((r) => r.json()),
       api("/api/questions").then((r) => r.json()),
     ]);
     // Only refetch the answer lists that have new answers.
@@ -101,6 +102,7 @@ async function refresh() {
     if (seq !== refreshSeq) return;
     const firstLoad = activeVariant === null;
     activeVariant = variant;
+    activeCamera = camera;
     questions = list;
     // New questions start out in the variant the kiosk is running.
     if (firstLoad) $("newVariants").replaceChildren(variantPicker([variant]));
@@ -118,11 +120,15 @@ async function loadAnswers(q) {
 // --- Rendering --------------------------------------------------------------
 
 function render() {
-  renderSwitch();
+  renderSettings();
   renderQuestions();
 }
 
-function renderSwitch() {
+function renderSettings() {
+  document.querySelectorAll("#cameraSwitch button").forEach((btn) =>
+    btn.setAttribute("aria-pressed", btn.dataset.camera === activeCamera)
+  );
+
   const count = (variant) => questions.filter((q) => q.variants.includes(variant)).length;
   document.querySelectorAll("#variantSwitch button").forEach((btn) => {
     btn.setAttribute("aria-pressed", btn.dataset.variant === activeVariant);
@@ -349,22 +355,44 @@ const pickedVariants = (root) => [...root.querySelectorAll(".variant-picks input
 // --- Actions ----------------------------------------------------------------
 
 document.querySelectorAll("#variantSwitch button").forEach((btn) =>
-  btn.addEventListener("click", async () => {
+  btn.addEventListener("click", () => {
     const variant = btn.dataset.variant;
     if (!activeVariant || variant === activeVariant) return;
     const previous = activeVariant;
-    refreshSeq++; // ignore a refresh that is still on its way with the old variant
     activeVariant = variant;
-    render();
-    try {
-      await api("/api/variant", { method: "PUT", body: JSON.stringify({ variant }) });
-    } catch (err) {
-      activeVariant = previous;
-      render();
-      report(err, $("variantMsg"));
+    saveSettings({ variant }, () => (activeVariant = previous), $("variantMsg"));
+  })
+);
+
+document.querySelectorAll("#cameraSwitch button").forEach((btn) =>
+  btn.addEventListener("click", async () => {
+    const camera = btn.dataset.camera;
+    if (!activeCamera || camera === activeCamera) return;
+    const previous = activeCamera;
+    activeCamera = camera;
+    if (await saveSettings({ camera }, () => (activeCamera = previous), $("cameraMsg"))) {
+      setMsg($("cameraMsg"), "The kiosk switches to this camera within a few seconds.", "ok");
     }
   })
 );
+
+/**
+ * Show a settings change right away, then save it. `undo` puts it back if
+ * saving fails. Resolves to whether it was saved.
+ */
+async function saveSettings(change, undo, msgEl) {
+  refreshSeq++; // ignore a refresh that is still on its way with the old settings
+  render();
+  try {
+    await api("/api/settings", { method: "PATCH", body: JSON.stringify(change) });
+    return true;
+  } catch (err) {
+    undo();
+    render();
+    report(err, msgEl);
+    return false;
+  }
+}
 
 $("addForm").addEventListener("submit", async (e) => {
   e.preventDefault();

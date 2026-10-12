@@ -494,13 +494,16 @@ button.link:hover { filter: brightness(1.25); }
 .msg.error { color: var(--disagree); }
 .msg.ok { color: var(--agree); }
 
-/* Variant switcher: one big tile per variant */
-.variant-switch {
+.card .sub-head { margin: 0 0 10px; font-size: 0.9rem; color: var(--muted); }
+.card .msg + .sub-head { margin-top: 20px; }
+
+/* Variant and camera switchers: one tile per option */
+.tile-switch {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
 }
-.variant-switch button {
+.tile-switch button {
   display: grid;
   justify-items: start;
   gap: 2px;
@@ -512,16 +515,23 @@ button.link:hover { filter: brightness(1.25); }
   border: 2px solid transparent;
   border-radius: 16px;
 }
-.variant-switch button:hover { border-color: var(--surface-2); filter: none; }
-.variant-switch button[aria-pressed="true"] {
+.tile-switch button:hover { border-color: var(--surface-2); filter: none; }
+.tile-switch button[aria-pressed="true"] {
   color: var(--text);
   background: color-mix(in srgb, var(--accent) 18%, var(--bg));
   border-color: var(--accent);
 }
-.variant-switch .v-icon { font-size: 1.6rem; line-height: 1.2; }
-.variant-switch .v-name { font-weight: 700; color: var(--text); }
-.variant-switch .v-count { font-size: 0.85rem; }
-.variant-switch button[aria-pressed="true"] .v-count::before { content: "● Live · "; color: var(--agree); }
+.tile-switch .v-icon { font-size: 1.6rem; line-height: 1.2; }
+.tile-switch .v-name { font-weight: 700; color: var(--text); }
+.tile-switch .v-count,
+.tile-switch .v-note { font-size: 0.85rem; }
+.tile-switch button[aria-pressed="true"] .v-count::before { content: "● Live · "; color: var(--agree); }
+.tile-switch button[aria-pressed="true"] .v-note::before { content: "● In use · "; color: var(--agree); }
+
+/* Smaller tiles with the icon beside the text */
+.tile-switch.compact { grid-template-columns: repeat(2, 1fr); }
+.tile-switch.compact button { grid-template-columns: auto 1fr; column-gap: 12px; padding: 10px 14px; }
+.tile-switch.compact .v-icon { grid-row: span 2; align-self: center; }
 
 /* Add / edit form */
 .q-form textarea { min-height: 72px; }
@@ -663,9 +673,10 @@ button.link:hover { filter: brightness(1.25); }
 .empty { margin: 0; color: var(--muted); }
 
 @media (max-width: 600px) {
-  .variant-switch { grid-template-columns: 1fr; }
-  .variant-switch button { grid-template-columns: auto 1fr; column-gap: 12px; }
-  .variant-switch .v-icon { grid-row: span 2; align-self: center; }
+  .tile-switch,
+  .tile-switch.compact { grid-template-columns: 1fr; }
+  .tile-switch button { grid-template-columns: auto 1fr; column-gap: 12px; }
+  .tile-switch .v-icon { grid-row: span 2; align-self: center; }
   .q-top { flex-direction: column; }
   .q-result { grid-template-columns: 2.6em 1fr; }
   .q-num { grid-column: 2; text-align: left; }

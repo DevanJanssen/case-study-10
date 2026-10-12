@@ -26,8 +26,9 @@
 
   <div id="dashboard" hidden>
     <section class="card">
-      <h2>Kiosk variant</h2>
-      <div class="variant-switch" id="variantSwitch" role="group" aria-label="Kiosk variant">
+      <h2>Kiosk</h2>
+      <h3 class="sub-head">Variant</h3>
+      <div class="tile-switch" id="variantSwitch" role="group" aria-label="Kiosk variant">
         <button type="button" data-variant="thumbs" aria-pressed="false">
           <span class="v-icon">👍👎</span><span class="v-name">Agree / disagree</span><span class="v-count"></span>
         </button>
@@ -39,6 +40,17 @@
         </button>
       </div>
       <p class="msg" id="variantMsg"></p>
+
+      <h3 class="sub-head">Camera</h3>
+      <div class="tile-switch compact" id="cameraSwitch" role="group" aria-label="Kiosk camera">
+        <button type="button" data-camera="macbook" aria-pressed="false">
+          <span class="v-icon">💻</span><span class="v-name">MacBook camera</span><span class="v-note">Landscape, for testing</span>
+        </button>
+        <button type="button" data-camera="logitech" aria-pressed="false">
+          <span class="v-icon">🎥</span><span class="v-name">Logitech StreamCam</span><span class="v-note">Portrait, for the kiosk display</span>
+        </button>
+      </div>
+      <p class="msg" id="cameraMsg"></p>
     </section>
 
     <section class="card">

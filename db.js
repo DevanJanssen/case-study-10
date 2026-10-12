@@ -7,10 +7,14 @@ export const DATABASE_URL =
 export const VARIANTS = ["thumbs", "stars", "fingers"];
 // Variants whose answer is a 1–5 rating rather than agree/disagree.
 export const RATING_VARIANTS = ["stars", "fingers"];
+// Cameras the kiosk can use. public/kiosk.js has the details of each.
+export const CAMERAS = ["macbook", "logitech"];
 
 export const pool = new pg.Pool({ connectionString: DATABASE_URL });
 
-const variantList = VARIANTS.map((v) => `'${v}'`).join(", ");
+const sqlList = (values) => values.map((v) => `'${v}'`).join(", ");
+const variantList = sqlList(VARIANTS);
+const cameraList = sqlList(CAMERAS);
 
 /** Create the tables on first run. Safe to call on every start. */
 export async function initSchema() {
@@ -35,11 +39,14 @@ export async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS answers_question_idx ON answers (question_id, variant);
 
-    -- A single row holding the variant the kiosk runs.
+    -- A single row holding the variant and camera the kiosk uses.
     CREATE TABLE IF NOT EXISTS settings (
       id             boolean PRIMARY KEY DEFAULT true CHECK (id),
       active_variant text    NOT NULL DEFAULT 'thumbs' CHECK (active_variant IN (${variantList}))
     );
+    -- Added after the first release, so existing databases get it too.
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS
+      camera text NOT NULL DEFAULT 'logitech' CHECK (camera IN (${cameraList}));
     INSERT INTO settings DEFAULT VALUES ON CONFLICT DO NOTHING;
   `);
 }

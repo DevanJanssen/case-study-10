@@ -2,7 +2,7 @@ import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { pool, initSchema, DATABASE_URL, VARIANTS, RATING_VARIANTS } from "./db.js";
+import { pool, initSchema, DATABASE_URL, VARIANTS, RATING_VARIANTS, CAMERAS } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -66,9 +66,10 @@ function questionResults(question, rows) {
   return results;
 }
 
-async function activeVariant() {
-  const { rows } = await pool.query("SELECT active_variant FROM settings");
-  return rows[0].active_variant;
+/** The variant and camera the kiosk uses: {variant, camera}. */
+async function kioskSettings() {
+  const { rows } = await pool.query("SELECT active_variant AS variant, camera FROM settings");
+  return rows[0];
 }
 
 /** A positive Postgres integer id, or null. */
@@ -106,14 +107,15 @@ function requireAdmin(req, res, next) {
 
 // --- Kiosk ----------------------------------------------------------------
 
-// The active variant and every question assigned to it. The kiosk shows them one at a time, in random order.
+// The kiosk settings and every question assigned to the active variant.
+// The kiosk shows the questions one at a time, in random order.
 app.get("/api/kiosk", async (req, res) => {
-  const variant = await activeVariant();
+  const { variant, camera } = await kioskSettings();
   const { rows } = await pool.query(
     "SELECT id, text FROM questions WHERE $1 = ANY (variants) ORDER BY id",
     [variant]
   );
-  res.json({ variant, questions: rows });
+  res.json({ variant, camera, questions: rows });
 });
 
 // Thumbs answers take {answer}, star and finger answers take {rating}.
@@ -151,17 +153,25 @@ app.post("/api/answers", async (req, res) => {
 
 // --- Admin ----------------------------------------------------------------
 
-app.get("/api/variant", async (req, res) => {
-  res.json({ variant: await activeVariant() });
+app.get("/api/settings", async (req, res) => {
+  res.json(await kioskSettings());
 });
 
-app.put("/api/variant", requireAdmin, async (req, res) => {
-  const variant = req.body?.variant;
-  if (!VARIANTS.includes(variant)) {
+// Change the variant, the camera or both. Fields left out keep their value.
+app.patch("/api/settings", requireAdmin, async (req, res) => {
+  const { variant, camera } = req.body ?? {};
+  if (variant !== undefined && !VARIANTS.includes(variant)) {
     return res.status(400).json({ error: `variant must be one of: ${VARIANTS.join(", ")}` });
   }
-  await pool.query("UPDATE settings SET active_variant = $1", [variant]);
-  res.json({ variant });
+  if (camera !== undefined && !CAMERAS.includes(camera)) {
+    return res.status(400).json({ error: `camera must be one of: ${CAMERAS.join(", ")}` });
+  }
+  const { rows } = await pool.query(
+    `UPDATE settings SET active_variant = COALESCE($1, active_variant), camera = COALESCE($2, camera)
+     RETURNING active_variant AS variant, camera`,
+    [variant ?? null, camera ?? null]
+  );
+  res.json(rows[0]);
 });
 
 // All questions, newest first, with their results per variant.
