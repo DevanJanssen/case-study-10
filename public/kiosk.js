@@ -8,13 +8,13 @@ import {
 
 // How long each variant's gesture must be held before it counts
 const THUMBS_HOLD_MS = 3000;
-const STARS_HOLD_MS = 1000;
+const STARS_HOLD_MS = 3000;
 const FINGERS_HOLD_MS = 3000;
 const MIN_SCORE = 0.6;         // minimum model confidence for a thumb gesture
 const GRACE_MS = 250;          // tolerate brief detection drop-outs while holding
 const RESULT_MS = 4000;        // how long the result card is shown
 const HAND_GONE_MS = 1000;     // hand must be out of view this long before the next vote
-const POLL_MS = 3000;          // how often to check for a new statement
+const POLL_MS = 3000;          // how often to check for a new variant or changed questions
 const STAR_HIT_PADDING = 40;   // px around each star that still counts as pointing at it
 const SMOOTHING = 0.5;         // 0 = raw fingertip, closer to 1 = steadier but laggier cursor
 const FINGER_RATIO = 1.15;     // finger is "up" when tip-to-wrist > this × joint-to-wrist
@@ -121,7 +121,10 @@ const fingerEls = [1, 2, 3, 4, 5].map((n) => {
 // --- State ------------------------------------------------------------------
 
 let recognizer;
-let statement = null;           // { id, text, mode }
+let mode = null;                // active variant, chosen on the admin page
+let questions = [];             // [{ id, text }] assigned to the active variant
+let question = null;            // { id, text } on screen, or null when there is nothing to ask
+let queue = [];                 // ids of the questions still to ask in this round, in random order
 let state = "idle";             // idle | holding | saving | result | cooldown
 let holdKey = null;             // what is being held: a gesture name, star number or finger count
 let holdStart = 0;
@@ -237,13 +240,13 @@ const variants = {
   },
 };
 
-const variant = () => variants[statement?.mode] ?? variants.thumbs;
+const variant = () => variants[mode] ?? variants.thumbs;
 
 function applyMode() {
-  const mode = variants[statement?.mode] ? statement.mode : "thumbs";
-  document.body.dataset.mode = mode;
-  els.stars.hidden = mode !== "stars";
-  els.fingers.hidden = mode !== "fingers";
+  const name = variants[mode] ? mode : "thumbs";
+  document.body.dataset.mode = name;
+  els.stars.hidden = name !== "stars";
+  els.fingers.hidden = name !== "fingers";
   els.cursor.hidden = true;
   Object.values(variants).forEach((v) => v.clear());
 }
@@ -335,25 +338,67 @@ function paintStars(value) {
   });
 }
 
-// --- Statement --------------------------------------------------------------
+// --- Questions --------------------------------------------------------------
 
-async function loadStatement() {
+async function loadQuestions() {
   try {
-    const res = await fetch("/api/statement", { cache: "no-store" });
+    const res = await fetch("/api/kiosk", { cache: "no-store" });
     if (!res.ok) throw new Error(res.statusText);
     const next = await res.json();
-    if (!statement || next.id !== statement.id) {
-      const modeChanged = next.mode !== statement?.mode;
-      statement = next;
-      els.statement.textContent = next.text;
-      if (modeChanged) applyMode();
-      // A new statement mid-hold should not inherit the old gesture.
-      if (state === "holding" || state === "idle") resetToIdle();
+    const known = new Set(questions.map((q) => q.id));
+    questions = next.questions;
+
+    if (next.variant !== mode) {
+      mode = next.variant;
+      queue = [];
+      applyMode();
+      showQuestion(nextQuestion());
+      return;
     }
+
+    // Questions added on the admin page join this round at a random spot.
+    for (const { id } of questions) {
+      if (!known.has(id)) queue.splice(Math.floor(Math.random() * (queue.length + 1)), 0, id);
+    }
+    // The question on screen may have been edited, deleted or taken out of this variant.
+    const current = questions.find((q) => q.id === question?.id);
+    if (!current && (question || questions.length)) showQuestion(nextQuestion());
+    else if (current && current.text !== question.text) showQuestion(current);
   } catch (err) {
-    console.warn("Could not load statement:", err);
-    if (!statement) els.statement.textContent = "Cannot reach the server…";
+    console.warn("Could not load questions:", err);
+    if (!question) els.statement.textContent = "Cannot reach the server…";
   }
+}
+
+/**
+ * Pick the next question at random. Every question in the variant is asked
+ * once before any is repeated, and the same question never comes twice in a row.
+ */
+function nextQuestion() {
+  queue = queue.filter((id) => questions.some((q) => q.id === id));
+  if (!queue.length) {
+    queue = shuffle(questions.map((q) => q.id));
+    if (queue.length > 1 && queue[0] === question?.id) queue.push(queue.shift());
+  }
+  const id = queue.shift();
+  return questions.find((q) => q.id === id) ?? null;
+}
+
+function shuffle(items) {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+function showQuestion(next) {
+  const changed = next?.id !== question?.id;
+  question = next;
+  els.statement.textContent = next ? next.text : "No question to answer right now";
+  document.body.classList.toggle("no-question", !next);
+  // A new question mid-hold should not inherit the old gesture.
+  if (changed && (state === "holding" || state === "idle")) resetToIdle();
 }
 
 // --- Camera & model ---------------------------------------------------------
@@ -420,8 +465,8 @@ function showNotice(text, { button = false } = {}) {
 }
 
 async function boot() {
-  await loadStatement();
-  setInterval(loadStatement, POLL_MS);
+  await loadQuestions();
+  setInterval(loadQuestions, POLL_MS);
 
   if (!navigator.mediaDevices?.getUserMedia) {
     showNotice("This browser cannot access the camera. Open the page via http://localhost or HTTPS.");
@@ -563,7 +608,7 @@ function drawHandBox(hand) {
 function tick(key, handVisible, now) {
   switch (state) {
     case "idle":
-      if (key) startHold(key, now);
+      if (key && question) startHold(key, now);
       break;
 
     case "holding": {
@@ -609,7 +654,7 @@ function resetToIdle() {
   variant().clear();
   els.result.hidden = true;
   els.camera.classList.remove("dimmed");
-  setStatus(variant().idleText);
+  setStatus(question ? variant().idleText : "");
 }
 
 function setStatus(text) {
@@ -626,10 +671,10 @@ async function submitVote(payload) {
 
   let results;
   try {
-    const res = await fetch("/api/votes", {
+    const res = await fetch("/api/answers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ statementId: statement?.id, ...payload }),
+      body: JSON.stringify({ questionId: question?.id, variant: mode, ...payload }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
     results = await res.json();
@@ -648,14 +693,15 @@ async function submitVote(payload) {
     els.camera.classList.remove("dimmed");
     variant().clear();
     state = "cooldown";
+    showQuestion(nextQuestion());
     setStatus("Please lower your hand so the next student can answer");
   }, RESULT_MS);
 }
 
 function showResult(payload, r) {
   let rows;
-  if (r.mode === "stars" || r.mode === "fingers") {
-    const fingers = r.mode === "fingers";
+  if (r.variant === "stars" || r.variant === "fingers") {
+    const fingers = r.variant === "fingers";
     const unit = fingers ? "✋" : "★";
     els.result.dataset.answer = "stars";
     els.resultTitle.textContent = fingers

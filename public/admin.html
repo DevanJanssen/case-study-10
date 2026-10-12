@@ -7,8 +7,13 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="admin">
-  <h1>Feedback admin</h1>
-  <p class="sub">Manage the statement shown on the <a href="/" target="_blank">kiosk</a> and view results.</p>
+  <header class="admin-head">
+    <div>
+      <h1>Feedback admin</h1>
+      <p class="sub">Manage the questions on the <a href="/" target="_blank">kiosk</a> and see every answer.</p>
+    </div>
+    <button id="logoutBtn" class="secondary small" hidden>Sign out</button>
+  </header>
 
   <section class="card" id="loginCard">
     <h2>Sign in</h2>
@@ -21,68 +26,40 @@
 
   <div id="dashboard" hidden>
     <section class="card">
-      <h2>Current statement · live results</h2>
-      <p class="current-statement"><span id="currentText">…</span> <span class="badge" id="currentMode"></span></p>
-
-      <div id="thumbsResults">
-        <div class="stats">
-          <div class="stat agree"><div class="label">👍 Agree</div><div class="value" id="agreeVal">0</div></div>
-          <div class="stat disagree"><div class="label">👎 Disagree</div><div class="value" id="disagreeVal">0</div></div>
-          <div class="stat"><div class="label">Total</div><div class="value" id="totalVal">0</div></div>
-        </div>
-        <div class="split-bar" aria-hidden="true">
-          <div class="agree" id="agreeSplit" style="width:0"></div>
-          <div class="disagree" id="disagreeSplit" style="width:0"></div>
-        </div>
+      <h2>Kiosk variant</h2>
+      <div class="variant-switch" id="variantSwitch" role="group" aria-label="Kiosk variant">
+        <button type="button" data-variant="thumbs" aria-pressed="false">
+          <span class="v-icon">👍👎</span><span class="v-name">Agree / disagree</span><span class="v-count"></span>
+        </button>
+        <button type="button" data-variant="stars" aria-pressed="false">
+          <span class="v-icon">⭐</span><span class="v-name">1–5 stars</span><span class="v-count"></span>
+        </button>
+        <button type="button" data-variant="fingers" aria-pressed="false">
+          <span class="v-icon">✋</span><span class="v-name">1–5 fingers</span><span class="v-count"></span>
+        </button>
       </div>
-
-      <div id="starsResults" hidden>
-        <div class="stats">
-          <div class="stat avg"><div class="label">Average</div><div class="value" id="avgVal">–</div></div>
-          <div class="stat"><div class="label">Ratings</div><div class="value" id="ratingsVal">0</div></div>
-        </div>
-        <div class="dist" id="dist"></div>
-      </div>
-
-      <p class="msg" id="pctText"></p>
-      <div class="row" style="margin-top:16px">
-        <span class="msg" style="margin:0">Switch variant:</span>
-        <button class="secondary switch-btn" data-mode="thumbs">👍👎 Agree / disagree</button>
-        <button class="secondary switch-btn" data-mode="stars">⭐ Stars</button>
-        <button class="secondary switch-btn" data-mode="fingers">✋ Fingers</button>
-      </div>
-      <p class="msg">Switching republishes the same statement with the chosen variant. Results are kept separately.</p>
+      <p class="msg" id="variantMsg"></p>
     </section>
 
     <section class="card">
-      <h2>Set a new statement</h2>
-      <form id="statementForm">
-        <div class="mode-toggle" role="radiogroup" aria-label="Variant">
-          <input type="radio" name="mode" id="modeThumbs" value="thumbs" checked><label for="modeThumbs">👍👎 Agree / disagree</label>
-          <input type="radio" name="mode" id="modeStars" value="stars"><label for="modeStars">⭐ 1–5 stars</label>
-          <input type="radio" name="mode" id="modeFingers" value="fingers"><label for="modeFingers">✋ 1–5 fingers</label>
+      <h2>Add a question</h2>
+      <form id="addForm" class="q-form">
+        <textarea id="newText" maxlength="300" placeholder="e.g. The pace of this lesson was right for me." required></textarea>
+        <div class="q-form-foot">
+          <div id="newVariants"></div>
+          <button type="submit">Add question</button>
         </div>
-        <textarea id="newStatement" maxlength="300" placeholder="e.g. The pace of this lesson was right for me." required></textarea>
-        <div class="row">
-          <button type="submit">Publish to kiosk</button>
-          <span class="msg" id="statementMsg" style="margin:0"></span>
-        </div>
+        <p class="msg" id="addMsg"></p>
       </form>
-      <p class="msg">Each statement keeps its own results. The kiosk picks up the new statement within a few seconds.</p>
     </section>
 
     <section class="card">
-      <h2>History</h2>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Statement</th><th>Variant</th><th>Created (UTC)</th><th class="num">Responses</th><th class="num">Result</th></tr></thead>
-          <tbody id="historyBody"></tbody>
-        </table>
+      <div class="card-head">
+        <h2>Questions <span class="count" id="questionCount"></span></h2>
+        <button id="exportBtn" class="secondary small">Export answers (CSV)</button>
       </div>
-      <div class="row" style="margin-top:16px">
-        <button id="exportBtn">Export all responses (CSV)</button>
-        <button id="logoutBtn" class="secondary">Sign out</button>
-      </div>
+      <ul class="questions" id="questionList"></ul>
+      <p class="empty" id="emptyMsg" hidden>No questions yet. Add one above.</p>
     </section>
   </div>
 
