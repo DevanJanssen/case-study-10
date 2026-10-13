@@ -79,7 +79,8 @@ body.kiosk {
   filter: grayscale(1);
   transition: filter 0.3s;
 }
-.camera.dimmed .feed { filter: grayscale(1) blur(6px) brightness(0.5); }
+.camera.dimmed .feed,
+body[data-state="idle"] .feed { filter: grayscale(1) blur(6px) brightness(0.5); }
 
 /* Fades that keep the statement and instructions readable over any background */
 .scrim {
@@ -178,6 +179,119 @@ body:not([data-mode="thumbs"]) .scrim { --top: 45%; }
   margin: 0;
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.7);
+}
+
+/* The idle screen takes over from the question and instructions; the privacy note stays */
+.statement-bar,
+.status { transition: opacity 0.4s; }
+body[data-state="idle"] :is(.statement-bar, .status) { opacity: 0; }
+
+/* --- Idle screen ---------------------------------------------------------- */
+
+.idle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(16px, 3vh, 36px);
+  padding: 24px clamp(16px, 4vw, 64px);
+  text-align: center;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85), 0 1px 3px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.4s, visibility 0.4s;
+}
+body[data-state="idle"] .idle { opacity: 1; visibility: visible; }
+/* Keep it off the loading and camera notices */
+.notice:not([hidden]) ~ .idle { display: none; }
+
+/* The waving hand, with rings rippling out from it */
+.wave-badge {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: clamp(170px, 34vmin, 360px);
+  aspect-ratio: 1;
+  margin-bottom: clamp(8px, 2vh, 24px);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(109, 94, 252, 0.5), rgba(15, 16, 32, 0.55) 70%);
+  border: 3px solid rgba(255, 255, 255, 0.25);
+}
+.wave-badge::before,
+.wave-badge::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 3px solid var(--accent);
+  animation: ripple 2.4s ease-out infinite;
+}
+.wave-badge::after { animation-delay: 1.2s; }
+/* A hand is in view: the rings turn the colour of the tracking square */
+.idle.tracking .wave-badge::before,
+.idle.tracking .wave-badge::after { border-color: var(--track); }
+
+.wave-hand {
+  font-size: clamp(5rem, 17vmin, 10.5rem);
+  line-height: 1;
+  transform-origin: 70% 80%; /* the wrist */
+  animation: wave 2.2s ease-in-out infinite;
+}
+
+.idle-title {
+  margin: 0;
+  max-width: 18ch;
+  font-size: clamp(2rem, 5.5vw, 4.2rem);
+  font-weight: 800;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.idle-hint {
+  margin: 0;
+  max-width: 32ch;
+  min-height: 1.3em;
+  font-size: clamp(1.1rem, 2.6vw, 1.9rem);
+  font-weight: 600;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* One dot per swing, filled as the wave is counted */
+.wave-steps { display: flex; gap: clamp(10px, 1.6vw, 16px); }
+.wave-steps span {
+  width: clamp(14px, 2.2vw, 22px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  background: rgba(15, 16, 32, 0.35);
+  transition: background 0.15s, border-color 0.15s, transform 0.2s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.wave-steps span.filled {
+  background: var(--track);
+  border-color: var(--track);
+  transform: scale(1.25);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.6);
+}
+
+/* No question assigned: nothing to wave for */
+body.no-question :is(.wave-badge, .idle-hint, .wave-steps) { display: none; }
+
+@keyframes wave {
+  0%, 60%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(16deg); }
+  20% { transform: rotate(-10deg); }
+  30% { transform: rotate(16deg); }
+  40% { transform: rotate(-6deg); }
+  50% { transform: rotate(10deg); }
+}
+
+@keyframes ripple {
+  from { transform: scale(1); opacity: 0.9; }
+  to { transform: scale(1.45); opacity: 0; }
 }
 
 /* Hold ring */

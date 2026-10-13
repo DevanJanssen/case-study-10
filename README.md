@@ -1,6 +1,6 @@
 # Gesture Feedback
 
-A kiosk website for collecting student feedback with hand gestures. You keep a list of questions on the admin page and assign each one to one or more variants. The kiosk runs one variant at a time and asks that variant's questions in random order. There are three variants:
+A kiosk website for collecting student feedback with hand gestures. You keep a list of questions on the admin page and assign each one to one or more variants. The kiosk runs one variant at a time and asks that variant's questions in random order. Until someone waves at it, the kiosk shows an idle screen. There are three variants:
 
 - **👍👎 Agree / disagree.** The student holds a thumbs up (agree) or thumbs down (disagree) in front of the camera for **3 seconds**.
 - **⭐ 1–5 stars.** Five outline stars are shown below the question. The student points their index finger at a star, which fills that star and all the stars before it, and holds it for **1 second** to submit the rating.
@@ -43,17 +43,17 @@ Statements with the same text become one question, assigned to every variant the
 
 ## How the kiosk works
 
-1. **Idle.** The live camera feed fills the screen in black and white, with the question over the top and the instructions along the bottom. While a hand is visible, a green square follows it and shows the hand in colour, with the tracked joints drawn on top.
-2. **Holding.** The kiosk fills a hold timer, whose length depends on the variant. A 250 ms grace period absorbs single missed frames.
+1. **Idle.** A waving hand 👋 asks passers-by to wave, over the blurred camera feed. While a hand is visible, a green square follows it and shows the hand in colour, with the tracked joints drawn on top. The kiosk counts side-to-side swings of an open hand (an open palm, or at least four raised fingers), and a row of dots fills as it does. A swing must move the hand at least half a palm length (`WAVE_SWING`), so it works at any distance from the camera, and the next swing must follow within 0.8 seconds (`WAVE_GAP_MS`). Three swings (`WAVE_SWINGS`) wake the kiosk. If no question is assigned to the active variant, the idle screen says so and ignores waves.
+2. **Ready.** The camera feed fills the screen in black and white, with the question over the top and the instructions along the bottom. The hand that waved doesn't count as an answer until it changes or is lowered, so a waving hand isn't taken for five fingers. If no hand is seen for 10 seconds (`IDLE_AFTER_MS`), the kiosk goes back to the idle screen.
+3. **Holding.** The kiosk fills a hold timer, whose length depends on the variant. A 250 ms grace period absorbs single missed frames.
    - *Thumbs.* When a 👍 or 👎 is detected with enough confidence (`MIN_SCORE`), a large ring fills. If the student switches thumbs, it starts over. If they drop the gesture, it resets.
    - *Stars.* A cursor follows the index fingertip, but only while the index finger is extended. When the cursor is on a star, that star and the stars before it fill, and the ring around the cursor fills. Moving to another star restarts the timer.
    - *Fingers.* The kiosk counts raised fingers using MediaPipe's 3D hand landmarks, so the count doesn't depend on how far the hand is from the camera. A count only takes effect after it has been the same for several frames in a row (`STABLE_FRAMES`), and changing the count restarts the timer. A fist (0 fingers) isn't an answer.
-3. **Recorded.** The answer is saved with the question and variant, and the question's results for that variant are shown for 4 seconds: agree/disagree percentages, or the average rating plus a 1–5 distribution. Then the next question appears.
-4. **Cooldown.** The kiosk waits until no hand has been visible for 1 second before it accepts the next answer. This prevents the same student from answering twice.
+4. **Recorded.** The answer is saved with the question and variant, and the question's results for that variant are shown for 4 seconds: agree/disagree percentages, or the average rating plus a 1–5 distribution. Then the kiosk goes back to the idle screen with the next question lined up, so the next person has to wave before they can answer. If the answer can't be saved, the kiosk says so for 4 seconds and goes back to the idle screen with the same question, so the student can wave and try again.
 
 **Which question is shown.** The kiosk asks the questions assigned to the active variant one at a time, in random order. Every question is asked once before any is repeated, and the same question never comes twice in a row. Questions added on the admin page join the current round. If no question is assigned to the active variant, the kiosk says so and doesn't accept answers. It checks for a new variant and for changed questions every few seconds (`POLL_MS`).
 
- The timings, the star hit area, the cursor smoothing and the finger-count thresholds (`FINGER_RATIO`, `THUMB_RATIO`) are defined at the top of `public/kiosk.js`. Each variant has its own hold time: `THUMBS_HOLD_MS` (3 s), `STARS_HOLD_MS` (1 s) and `FINGERS_HOLD_MS` (3 s). The on-screen instructions follow these values.
+ The timings, the star hit area, the cursor smoothing, the finger-count thresholds (`FINGER_RATIO`, `THUMB_RATIO`) and the wave detection are defined at the top of `public/kiosk.js`. Each variant has its own hold time: `THUMBS_HOLD_MS` (3 s), `STARS_HOLD_MS` (1 s) and `FINGERS_HOLD_MS` (3 s). The on-screen instructions follow these values.
 
 ## Admin page
 

@@ -13,7 +13,10 @@ const FINGERS_HOLD_MS = 3000;
 const MIN_SCORE = 0.6;         // minimum model confidence for a thumb gesture
 const GRACE_MS = 250;          // tolerate brief detection drop-outs while holding
 const RESULT_MS = 4000;        // how long the result card is shown
-const HAND_GONE_MS = 1000;     // hand must be out of view this long before the next vote
+const IDLE_AFTER_MS = 10000;   // back to the idle screen when no hand is seen this long while a question waits
+const WAVE_SWINGS = 3;         // side-to-side swings of an open hand that wake the kiosk
+const WAVE_SWING = 0.5;        // a swing must move the hand at least this many palm lengths
+const WAVE_GAP_MS = 800;       // the wave starts over when the next swing takes longer than this
 const POLL_MS = 3000;          // how often to check for a new variant or changed questions
 const STAR_HIT_PADDING = 40;   // px around each star that still counts as pointing at it
 const SMOOTHING = 0.5;         // 0 = raw fingertip, closer to 1 = steadier but laggier cursor
@@ -63,6 +66,7 @@ const THUMB_TIP = 4;
 const INDEX_MCP = 5;
 const INDEX_PIP = 6;
 const INDEX_TIP = 8;
+const MIDDLE_MCP = 9;
 const PINKY_MCP = 17;
 const FINGERS = [ // [pip, tip] for index, middle, ring, pinky
   [6, 8], [10, 12], [14, 16], [18, 20],
@@ -113,6 +117,10 @@ const els = {
   resultAverage: $("resultAverage"),
   resultBars: $("resultBars"),
   resultTotal: $("resultTotal"),
+  idle: $("idle"),
+  idleTitle: $("idleTitle"),
+  idleHint: $("idleHint"),
+  waveSteps: $("waveSteps"),
 };
 
 const RING_LENGTH = 2 * Math.PI * 52;
@@ -137,6 +145,13 @@ const fingerEls = [1, 2, 3, 4, 5].map((n) => {
   return el;
 });
 
+// One dot per swing on the idle screen, filled as the wave is counted
+const waveDots = Array.from({ length: WAVE_SWINGS }, () => {
+  const el = document.createElement("span");
+  els.waveSteps.append(el);
+  return el;
+});
+
 // --- State ------------------------------------------------------------------
 
 let recognizer;
@@ -144,7 +159,9 @@ let mode = null;                // active variant, chosen on the admin page
 let questions = [];             // [{ id, text }] assigned to the active variant
 let question = null;            // { id, text } on screen, or null when there is nothing to ask
 let queue = [];                 // ids of the questions still to ask in this round, in random order
-let state = "idle";             // idle | holding | saving | result | cooldown
+let state = "idle";             // idle | ready | holding | saving | result
+let wave = null;                // the wave being counted on the idle screen: { peak, dir, swings, lastSwing }
+let wakeKey = null;             // the answer the waving hand already made, ignored until it changes
 let holdKey = null;             // what is being held: a gesture name, star number or finger count
 let holdStart = 0;
 let lastKeySeen = 0;
@@ -161,14 +178,14 @@ let rotation = 0;               // clockwise turn of the open camera's frames
 
 // --- Variants ---------------------------------------------------------------
 //
-// All variants share the same hold → save → result → cooldown flow. A variant
+// All variants share the same wave → hold → save → result flow. A variant
 // only decides what the student is "holding" in a frame (read), how to show
 // the hold (render/clear), and what to send to the server (payload).
 
 const variants = {
   thumbs: {
     holdMs: THUMBS_HOLD_MS,
-    idleText: `Show 👍 to agree or 👎 to disagree, and hold it for ${holdText(THUMBS_HOLD_MS)}`,
+    readyText: `Show 👍 to agree or 👎 to disagree, and hold it for ${holdText(THUMBS_HOLD_MS)}`,
 
     read(result) {
       const top = result.gestures[0]?.[0];
@@ -194,7 +211,7 @@ const variants = {
 
   stars: {
     holdMs: STARS_HOLD_MS,
-    idleText: `Point your index finger at a star and hold it for ${holdText(STARS_HOLD_MS)}`,
+    readyText: `Point your index finger at a star and hold it for ${holdText(STARS_HOLD_MS)}`,
 
     read(result) {
       const hand = result.landmarks[0];
@@ -207,7 +224,7 @@ const variants = {
       cursorPos = cursorPos
         ? { x: cursorPos.x + (raw.x - cursorPos.x) * (1 - SMOOTHING), y: cursorPos.y + (raw.y - cursorPos.y) * (1 - SMOOTHING) }
         : raw;
-      if (state === "idle" || state === "holding") {
+      if (state === "ready" || state === "holding") {
         els.cursor.hidden = false;
         els.cursor.style.transform = `translate(${cursorPos.x}px, ${cursorPos.y}px)`;
       }
@@ -236,7 +253,7 @@ const variants = {
 
   fingers: {
     holdMs: FINGERS_HOLD_MS,
-    idleText: `Hold up 1 to 5 fingers for ${holdText(FINGERS_HOLD_MS)} to give a rating`,
+    readyText: `Hold up 1 to 5 fingers for ${holdText(FINGERS_HOLD_MS)} to give a rating`,
 
     read(result) {
       const hand = result.worldLandmarks[0];
@@ -315,6 +332,53 @@ function paintFingers(value) {
     el.classList.toggle("filled", i < value);
     el.classList.toggle("target", i === value - 1);
   });
+}
+
+// --- Wave helpers -----------------------------------------------------------
+
+/** An open hand, as people hold it to wave: the model sees an open palm, or at least four fingers are up. */
+function handOpen(result) {
+  const world = result.worldLandmarks[0];
+  return result.gestures[0]?.[0]?.categoryName === "Open_Palm" || (world && countFingers(world) >= 4);
+}
+
+/**
+ * Count the side-to-side swings of an open hand. A swing is a move of at least
+ * WAVE_SWING palm lengths before the hand turns back, so it doesn't depend on
+ * how far the hand is from the camera. The count starts over when the next
+ * swing takes longer than WAVE_GAP_MS, so a hand drifting slowly never adds up.
+ */
+function countSwings(result, now) {
+  if (wave && now - wave.lastSwing > WAVE_GAP_MS) wave = null;
+  const hand = result.landmarks[0];
+  if (!hand || !handOpen(result)) return wave?.swings ?? 0;
+
+  // Measured in frame pixels: normalized x and y have different scales on a non-square frame.
+  const { width, height } = frameCanvas;
+  const x = (hand.reduce((sum, lm) => sum + lm.x, 0) / hand.length) * width;
+  const palm = Math.hypot((hand[MIDDLE_MCP].x - hand[WRIST].x) * width, (hand[MIDDLE_MCP].y - hand[WRIST].y) * height);
+
+  if (!wave) {
+    wave = { peak: x, dir: 0, swings: 0, lastSwing: now };
+  } else if ((x - wave.peak) * wave.dir > 0) {
+    wave.peak = x; // still moving the same way
+  } else if (Math.abs(x - wave.peak) >= palm * WAVE_SWING) {
+    // Set off from the start, or turned back far enough: a new swing.
+    wave.dir = Math.sign(x - wave.peak);
+    wave.peak = x;
+    wave.swings++;
+    wave.lastSwing = now;
+  }
+  return wave.swings;
+}
+
+function paintWave(swings, handVisible) {
+  waveDots.forEach((el, i) => el.classList.toggle("filled", i < swings));
+  els.idle.classList.toggle("tracking", handVisible);
+  setText(
+    els.idleHint,
+    swings ? "Keep waving…" : handVisible ? "Wave your open hand from side to side" : "Raise your hand and wave at the camera"
+  );
 }
 
 // --- Stars helpers ----------------------------------------------------------
@@ -423,9 +487,10 @@ function showQuestion(next) {
   const changed = next?.id !== question?.id;
   question = next;
   els.statement.textContent = next ? next.text : "No question to answer right now";
+  els.idleTitle.textContent = next ? "Wave to answer a question" : "No question to answer right now";
   document.body.classList.toggle("no-question", !next);
   // A new question mid-hold should not inherit the old gesture.
-  if (changed && (state === "holding" || state === "idle")) resetToIdle();
+  if (changed && (state === "holding" || state === "ready")) resetToReady();
 }
 
 // --- Camera & model ---------------------------------------------------------
@@ -624,7 +689,10 @@ function loop() {
   const handVisible = result.landmarks.length > 0;
   if (handVisible) lastHandSeen = now;
 
-  tick(variant().read(result), handVisible, now);
+  // Read every frame, also on the idle screen, so the finger count is settled by the time someone wakes the kiosk.
+  const key = variant().read(result);
+  if (state === "idle") watchForWave(result, key, handVisible, now);
+  else tick(key, now);
 }
 
 function drawHand(result) {
@@ -668,10 +736,27 @@ function drawHandBox(hand) {
   els.handBox.hidden = els.handColor.hidden = false;
 }
 
-function tick(key, handVisible, now) {
+/** On the idle screen: show how far along a wave is, and wake up when it is complete. */
+function watchForWave(result, key, handVisible, now) {
+  const swings = countSwings(result, now);
+  paintWave(swings, handVisible);
+  if (swings >= WAVE_SWINGS && question) {
+    // A waving hand can already be an answer, like five fingers. It only counts once it changes.
+    wakeKey = key;
+    resetToReady();
+  }
+}
+
+function tick(key, now) {
   switch (state) {
-    case "idle":
-      if (key && question) startHold(key, now);
+    case "ready":
+      if (now - lastHandSeen > IDLE_AFTER_MS) {
+        showIdle();
+        break;
+      }
+      if (key !== wakeKey) wakeKey = null;
+      if (key && question && !wakeKey) startHold(key, now);
+      else if (question) setStatus(wakeKey ? `Lower your hand first. ${variant().readyText}` : variant().readyText);
       break;
 
     case "holding": {
@@ -682,7 +767,7 @@ function tick(key, handVisible, now) {
         startHold(key, now);
         return;
       } else if (now - lastKeySeen > GRACE_MS) {
-        resetToIdle();
+        resetToReady();
         return;
       }
       const progress = Math.min((now - holdStart) / variant().holdMs, 1);
@@ -691,16 +776,12 @@ function tick(key, handVisible, now) {
       break;
     }
 
-    case "cooldown":
-      if (!handVisible && now - lastHandSeen > HAND_GONE_MS) resetToIdle();
-      break;
-
     // "saving" and "result" are driven by timers, not frames.
   }
 }
 
 function startHold(key, now) {
-  state = "holding";
+  setState("holding");
   holdKey = key;
   holdStart = now;
   lastKeySeen = now;
@@ -711,23 +792,47 @@ function secondsLeft(progress, holdMs) {
   return Math.max(1, Math.ceil((holdMs * (1 - progress)) / 1000));
 }
 
-function resetToIdle() {
-  state = "idle";
+/** The state is mirrored on <body data-state>, which the stylesheet uses to switch the idle screen. */
+function setState(next) {
+  state = next;
+  document.body.dataset.state = next;
+}
+
+/** Show the question and wait for an answer. */
+function resetToReady() {
+  setState("ready");
   holdKey = null;
   variant().clear();
   els.result.hidden = true;
   els.camera.classList.remove("dimmed");
-  setStatus(question ? variant().idleText : "");
+  setStatus(question ? variant().readyText : "");
+}
+
+/** Hide the question until someone waves. */
+function showIdle() {
+  setState("idle");
+  holdKey = null;
+  wakeKey = null;
+  wave = null;
+  variant().clear();
+  els.result.hidden = true;
+  els.cursor.hidden = true;
+  els.camera.classList.remove("dimmed");
+  paintWave(0, false);
+}
+
+function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
 }
 
 function setStatus(text) {
-  if (els.status.textContent !== text) els.status.textContent = text;
+  setText(els.status, text);
 }
 
 // --- Voting -----------------------------------------------------------------
 
 async function submitVote(payload) {
-  state = "saving";
+  setState("saving");
   els.ringWrap.hidden = true;
   els.cursor.hidden = true;
   setStatus("Saving…");
@@ -743,21 +848,19 @@ async function submitVote(payload) {
     results = await res.json();
   } catch (err) {
     console.error("Vote failed:", err);
-    variant().clear();
-    setStatus("⚠️ Your answer could not be saved. Lower your hand and try again.");
-    state = "cooldown";
-    return;
   }
 
-  showResult(payload, results);
-  state = "result";
-  setTimeout(() => {
-    els.result.hidden = true;
-    els.camera.classList.remove("dimmed");
+  setState("result");
+  if (results) {
+    showResult(payload, results);
+  } else {
     variant().clear();
-    state = "cooldown";
-    showQuestion(nextQuestion());
-    setStatus("Please lower your hand so the next student can answer");
+    setStatus("⚠️ Your answer could not be saved. Wave to try again.");
+  }
+  // Every answer ends on the idle screen, so whoever answers next starts with a wave.
+  setTimeout(() => {
+    if (results) showQuestion(nextQuestion()); // an answer that wasn't saved keeps its question
+    showIdle();
   }, RESULT_MS);
 }
 

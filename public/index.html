@@ -6,7 +6,7 @@
   <title>Gesture Feedback</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body class="kiosk" data-mode="thumbs">
+<body class="kiosk" data-mode="thumbs" data-state="idle">
   <main class="camera" id="camera">
     <!-- Raw sensor image. It is drawn upright onto the canvases below. -->
     <video class="source" id="video" playsinline muted autoplay></video>
@@ -70,6 +70,15 @@
         <p class="privacy">The camera image is processed on this device only and is never stored or sent.</p>
       </footer>
     </div>
+
+    <!-- Idle screen: covers the question until someone waves, so the kiosk knows they want to answer.
+         Over the blurred feed, but the hand square stays in view to show the hand is being tracked. -->
+    <section class="idle" id="idle">
+      <div class="wave-badge" aria-hidden="true"><span class="wave-hand">👋</span></div>
+      <p class="idle-title" id="idleTitle">Wave to answer a question</p>
+      <p class="idle-hint" id="idleHint">Raise your hand and wave at the camera</p>
+      <div class="wave-steps" id="waveSteps" aria-hidden="true"></div>
+    </section>
 
     <div class="cursor" id="cursor" hidden>
       <svg viewBox="0 0 60 60" aria-hidden="true">
