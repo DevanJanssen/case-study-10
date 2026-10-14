@@ -9,6 +9,8 @@ const PORT = Number(process.env.PORT) || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin";
 
 if (!process.env.ADMIN_PASSWORD) {
+  // Online, "admin" would let anyone change the questions and read every answer.
+  if (process.env.VERCEL) throw new Error("ADMIN_PASSWORD must be set on Vercel");
   console.warn('⚠️  ADMIN_PASSWORD not set, using the default "admin". Set it before real use.');
 }
 

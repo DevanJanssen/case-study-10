@@ -8,14 +8,20 @@ import {
 
 // How long each variant's gesture must be held before it counts
 const THUMBS_HOLD_MS = 3000;
-const STARS_HOLD_MS = 3000;
+const STARS_HOLD_MS = 1000;
 const FINGERS_HOLD_MS = 3000;
 const MIN_SCORE = 0.6;         // minimum model confidence for a thumb gesture
 const GRACE_MS = 250;          // tolerate brief detection drop-outs while holding
 const RESULT_MS = 4000;        // how long the result card is shown
 const IDLE_AFTER_MS = 10000;   // back to the idle screen when no hand is seen this long while a question waits
-const WAVE_SWINGS = 3;         // side-to-side swings of an open hand that wake the kiosk
-const WAVE_SWING = 0.5;        // a swing must move the hand at least this many palm lengths
+const MAX_HANDS = 3;           // hands the model looks for; the kiosk follows the raised one (see followHand)
+const HAND_MIN_SIZE = 0.35;    // a new hand smaller than this part of the biggest hand in view is further away, and ignored
+const HAND_SWITCH = 1;         // another hand must be this many palm sizes higher than the followed hand to take over
+const HAND_LOCK_MS = 400;      // a followed hand that is lost, blurred by moving fast, is waited for this long
+const WAVE_SWINGS = 1;         // side-to-side swings of a raised, open hand that wake the kiosk: back, forth and back
+const WAVE_SWING = 0.5;        // a swing must move the hand sideways at least this many palm lengths
+const WAVE_MAX_TILT = 60;      // degrees the waving hand may lean away from fingers-up
+const WAVE_MIN_SWING_MS = 100; // a swing faster than this is a jump in the tracking, not a hand
 const WAVE_GAP_MS = 800;       // the wave starts over when the next swing takes longer than this
 const POLL_MS = 3000;          // how often to check for a new variant or changed questions
 const STAR_HIT_PADDING = 40;   // px around each star that still counts as pointing at it
@@ -160,7 +166,8 @@ let questions = [];             // [{ id, text }] assigned to the active variant
 let question = null;            // { id, text } on screen, or null when there is nothing to ask
 let queue = [];                 // ids of the questions still to ask in this round, in random order
 let state = "idle";             // idle | ready | holding | saving | result
-let wave = null;                // the wave being counted on the idle screen: { peak, dir, swings, lastSwing }
+let followed = null;            // the hand being followed: { x, y, size, seen }, centre and palm size in frame pixels
+let wave = null;                // the wave being counted on the idle screen: { low, high, dir, swings, lastSwing }
 let wakeKey = null;             // the answer the waving hand already made, ignored until it changes
 let holdKey = null;             // what is being held: a gesture name, star number or finger count
 let holdStart = 0;
@@ -343,10 +350,11 @@ function handOpen(result) {
 }
 
 /**
- * Count the side-to-side swings of an open hand. A swing is a move of at least
- * WAVE_SWING palm lengths before the hand turns back, so it doesn't depend on
- * how far the hand is from the camera. The count starts over when the next
- * swing takes longer than WAVE_GAP_MS, so a hand drifting slowly never adds up.
+ * Count the side-to-side swings of a raised, open hand. A swing must move the
+ * hand at least WAVE_SWING palm lengths before it turns back, so it doesn't
+ * depend on how far the hand is from the camera. It must also go more sideways
+ * than up or down and take between WAVE_MIN_SWING_MS and WAVE_GAP_MS. Anything
+ * else, like raising the hand or moving it about, starts the count over.
  */
 function countSwings(result, now) {
   if (wave && now - wave.lastSwing > WAVE_GAP_MS) wave = null;
@@ -356,18 +364,28 @@ function countSwings(result, now) {
   // Measured in frame pixels: normalized x and y have different scales on a non-square frame.
   const { width, height } = frameCanvas;
   const x = (hand.reduce((sum, lm) => sum + lm.x, 0) / hand.length) * width;
-  const palm = Math.hypot((hand[MIDDLE_MCP].x - hand[WRIST].x) * width, (hand[MIDDLE_MCP].y - hand[WRIST].y) * height);
+  const y = (hand.reduce((sum, lm) => sum + lm.y, 0) / hand.length) * height;
+  const palmX = (hand[MIDDLE_MCP].x - hand[WRIST].x) * width;
+  const palmY = (hand[MIDDLE_MCP].y - hand[WRIST].y) * height;
 
-  if (!wave) {
-    wave = { peak: x, dir: 0, swings: 0, lastSwing: now };
-  } else if ((x - wave.peak) * wave.dir > 0) {
-    wave.peak = x; // still moving the same way
-  } else if (Math.abs(x - wave.peak) >= palm * WAVE_SWING) {
-    // Set off from the start, or turned back far enough: a new swing.
-    wave.dir = Math.sign(x - wave.peak);
-    wave.peak = x;
-    wave.swings++;
-    wave.lastSwing = now;
+  // Fingers up: the line from the wrist to the knuckles leans at most WAVE_MAX_TILT from vertical.
+  const tilt = (Math.atan2(Math.abs(palmX), -palmY) * 180) / Math.PI;
+  if (tilt > WAVE_MAX_TILT) return wave?.swings ?? 0;
+
+  // `low` and `high` are the leftmost and rightmost points since the last swing.
+  const start = (dir, swings) => ({ low: { x, y }, high: { x, y }, dir, swings, lastSwing: now });
+  wave ??= start(0, 0);
+  if (x < wave.low.x) wave.low = { x, y };
+  if (x > wave.high.x) wave.high = { x, y };
+
+  // A new swing: the hand came back far enough from the end it last reached, or, before the first swing, from either end.
+  const swing = Math.hypot(palmX, palmY) * WAVE_SWING;
+  const from =
+    wave.dir <= 0 && x - wave.low.x >= swing ? wave.low : wave.dir >= 0 && wave.high.x - x >= swing ? wave.high : null;
+  if (from) {
+    const sideways = Math.abs(x - from.x) > Math.abs(y - from.y);
+    const jump = now - wave.lastSwing < WAVE_MIN_SWING_MS;
+    wave = sideways && !jump ? start(Math.sign(x - from.x), wave.swings + 1) : start(0, 0);
   }
   return wave.swings;
 }
@@ -377,7 +395,7 @@ function paintWave(swings, handVisible) {
   els.idle.classList.toggle("tracking", handVisible);
   setText(
     els.idleHint,
-    swings ? "Keep waving…" : handVisible ? "Wave your open hand from side to side" : "Raise your hand and wave at the camera"
+    swings ? "Keep waving…" : handVisible ? "Hold your open hand up and wave it from side to side" : "Raise your hand and wave at the camera"
   );
 }
 
@@ -500,7 +518,8 @@ async function initRecognizer() {
   const opts = (delegate) => ({
     baseOptions: { modelAssetPath: MODEL_URL, delegate },
     runningMode: "VIDEO",
-    numHands: 1,
+    // More than one, so the kiosk can tell the hand it follows apart from the others (see followHand).
+    numHands: MAX_HANDS,
   });
   try {
     return await GestureRecognizer.createFromOptions(fileset, opts("GPU"));
@@ -682,9 +701,9 @@ function loop() {
   if (!renderUprightFrame()) return;
 
   const now = performance.now();
-  const result = recognizer.recognizeForVideo(frameCanvas, now);
+  const result = followHand(recognizer.recognizeForVideo(frameCanvas, now), now);
 
-  drawHand(result);
+  drawHand(result, now);
 
   const handVisible = result.landmarks.length > 0;
   if (handVisible) lastHandSeen = now;
@@ -695,7 +714,56 @@ function loop() {
   else tick(key, now);
 }
 
-function drawHand(result) {
+/**
+ * Pick the one hand to follow among those the model sees, and return the
+ * result with only that hand in it. The kiosk follows the raised hand, the
+ * highest in the picture, so a hand resting at the bottom never takes over
+ * from the hand that points, waves or makes the gesture. A new hand much
+ * smaller than the biggest one belongs to someone further away and is
+ * ignored. Another hand only takes over when it is clearly higher. A followed
+ * hand that is lost for a moment, blurred by moving fast, is waited for
+ * instead of jumping to a lower hand.
+ */
+function followHand(result, now) {
+  const { width, height } = frameCanvas;
+  const span = (a, b) => Math.hypot((a.x - b.x) * width, (a.y - b.y) * height);
+  const hands = result.landmarks.map((hand, i) => ({
+    i,
+    x: (hand.reduce((sum, lm) => sum + lm.x, 0) / hand.length) * width,
+    y: (hand.reduce((sum, lm) => sum + lm.y, 0) / hand.length) * height,
+    // The palm keeps its size whether the fingers are curled or not.
+    size: Math.max(span(hand[WRIST], hand[MIDDLE_MCP]), span(hand[INDEX_MCP], hand[PINKY_MCP])),
+  }));
+  const biggest = Math.max(0, ...hands.map((h) => h.size));
+  const highest = hands
+    .filter((h) => h.size >= biggest * HAND_MIN_SIZE)
+    .reduce((best, h) => (!best || h.y < best.y ? h : best), null);
+  const higher = (h, than) => h && h.y < than.y - than.size * HAND_SWITCH;
+
+  // The followed hand in this frame: about the same size, not clearly lower, and the closest to where
+  // it was. A waving hand that blurs mid-swing can turn up again at the other end, far to the side.
+  const recent = followed && now - followed.seen < HAND_LOCK_MS ? followed : null;
+  const away = (h) => Math.hypot(h.x - recent.x, h.y - recent.y);
+  const same = recent && hands
+    .filter((h) => h.size > recent.size / 2 && h.size < recent.size * 2 && !higher(recent, h))
+    .reduce((best, h) => (!best || away(h) < away(best) ? h : best), null);
+
+  let pick;
+  if (same) pick = higher(highest, same) ? highest : same;
+  else if (recent) pick = higher(highest, recent) ? highest : null; // lost for a moment: wait for it
+  else pick = highest;
+
+  if (pick && pick !== same) {
+    // A different hand: don't carry over the smoothing or the wave of the previous one.
+    handBox = cursorPos = wave = null;
+  }
+  if (pick) followed = { x: pick.x, y: pick.y, size: pick.size, seen: now };
+
+  const only = (list) => (pick ? [list[pick.i]] : []);
+  return { landmarks: only(result.landmarks), worldLandmarks: only(result.worldLandmarks), gestures: only(result.gestures) };
+}
+
+function drawHand(result, now) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   for (const landmarks of result.landmarks) {
     drawing.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, {
@@ -704,12 +772,14 @@ function drawHand(result) {
     });
     drawing.drawLandmarks(landmarks, { color: "#6d5efc", lineWidth: 2, radius: 4 });
   }
-  drawHandBox(result.landmarks[0]);
+  drawHandBox(result.landmarks[0], now);
 }
 
 /** Keep a square around the tracked hand, padded and centred on its landmarks. */
-function drawHandBox(hand) {
+function drawHandBox(hand, now) {
   if (!hand) {
+    // A hand lost for a moment, blurred by moving fast, keeps its square while it is waited for.
+    if (followed && now - followed.seen < HAND_LOCK_MS) return;
     handBox = null;
     els.handBox.hidden = els.handColor.hidden = true;
     return;
