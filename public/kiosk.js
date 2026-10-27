@@ -78,8 +78,6 @@ const FINGERS = [ // [pip, tip] for index, middle, ring, pinky
   [6, 8], [10, 12], [14, 16], [18, 20],
 ];
 
-const holdText = (ms) => `${ms / 1000} ${ms === 1000 ? "second" : "seconds"}`;
-
 const STAR_PATH =
   "M12 2.6l2.83 5.9 6.47.78-4.77 4.46 1.23 6.43L12 17.02l-5.76 3.15 1.23-6.43L2.7 9.28l6.47-.78z";
 
@@ -192,8 +190,6 @@ let rotation = 0;               // clockwise turn of the open camera's frames
 const variants = {
   thumbs: {
     holdMs: THUMBS_HOLD_MS,
-    readyText: `Show 👍 to agree or 👎 to disagree, and hold it for ${holdText(THUMBS_HOLD_MS)}`,
-
     read(result) {
       const top = result.gestures[0]?.[0];
       return top && GESTURES[top.categoryName] && top.score >= MIN_SCORE ? top.categoryName : null;
@@ -218,8 +214,6 @@ const variants = {
 
   stars: {
     holdMs: STARS_HOLD_MS,
-    readyText: `Point your index finger at a star and hold it for ${holdText(STARS_HOLD_MS)}`,
-
     read(result) {
       const hand = result.landmarks[0];
       if (!hand || !indexExtended(hand)) {
@@ -260,8 +254,6 @@ const variants = {
 
   fingers: {
     holdMs: FINGERS_HOLD_MS,
-    readyText: `Hold up 1 to 5 fingers for ${holdText(FINGERS_HOLD_MS)} to give a rating`,
-
     read(result) {
       const hand = result.worldLandmarks[0];
       return stableCount(hand ? countFingers(hand) : 0);
@@ -826,7 +818,7 @@ function tick(key, now) {
       }
       if (key !== wakeKey) wakeKey = null;
       if (key && question && !wakeKey) startHold(key, now);
-      else if (question) setStatus(wakeKey ? `Lower your hand first. ${variant().readyText}` : variant().readyText);
+      else setStatus(question && wakeKey ? "Lower your hand first" : "");
       break;
 
     case "holding": {
@@ -875,7 +867,7 @@ function resetToReady() {
   variant().clear();
   els.result.hidden = true;
   els.camera.classList.remove("dimmed");
-  setStatus(question ? variant().readyText : "");
+  setStatus("");
 }
 
 /** Hide the question until someone waves. */
