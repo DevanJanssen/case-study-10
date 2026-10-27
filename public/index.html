@@ -71,6 +71,27 @@
       </footer>
     </div>
 
+    <!-- How-to hint in the corner while a question waits for an answer: a small looping demo of the
+         gesture for the active variant. The stylesheet picks the demo from <body data-mode>. -->
+    <aside class="hint" aria-hidden="true">
+      <div class="hint-demo hint-thumbs">
+        <span class="hint-thumb up">👍</span>
+        <span class="hint-thumb down">👎</span>
+      </div>
+      <div class="hint-demo hint-fingers">
+        <span>☝️</span><span>✌️</span><span>🤟</span><span>🖐️</span>
+      </div>
+      <div class="hint-demo hint-stars">
+        <span class="hint-star-row"><i>★</i><i>★</i><i>★</i><i>★</i><i>★</i></span>
+        <span class="hint-point">☝️</span>
+      </div>
+      <p class="hint-text">
+        <span class="hint-thumbs">Thumb up or down</span>
+        <span class="hint-fingers">Hold up 1–5 fingers</span>
+        <span class="hint-stars">Point at a star</span>
+      </p>
+    </aside>
+
     <!-- Idle screen: covers the question until someone waves, so the kiosk knows they want to answer.
          Over the blurred feed, but the hand square stays in view to show the hand is being tracked. -->
     <section class="idle" id="idle">
